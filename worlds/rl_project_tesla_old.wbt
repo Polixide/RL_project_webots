@@ -1,0 +1,46 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/road/protos/Road.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/tesla/TeslaModel3.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation 0.09639574655376786 0.8374027854014976 -0.5380189913452452 0.42152812366183673
+  position -31.06278897238502 5.119346620926275 14.840680142520096
+}
+TexturedBackground {
+  luminosity 3
+  skyColor [
+    0.666667 1 1
+  ]
+}
+Road {
+  width 8
+  rightBarrier TRUE
+  leftBarrier TRUE
+  wayPoints [
+    -5 0 0
+    100 0 0
+  ]
+  splineSubdivision 1500
+  appearance Asphalt {
+    colorOverride 0 0 0
+  }
+  roadBoundingObject TRUE
+}
+DEF tesla TeslaModel3 {
+  translation -0.00288554 -1.99981 0.342719
+  rotation -0.05495379372250648 -0.9977751517737281 -0.03774688143963545 0.012387294262137406
+  name "tesla"
+  controller "tesla_controller"
+  supervisor TRUE
+  sensorsSlotCenter [
+    InertialUnit {
+    }
+    GPS {
+    }
+  ]
+}
