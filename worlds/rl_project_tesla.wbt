@@ -4,12 +4,14 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/road/protos/Road.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/tesla/TeslaModel3.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/obstacles/protos/OilBarrel.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/animals/protos/Cow.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.09639574655376786 0.8374027854014976 -0.5380189913452452 0.42152812366183673
-  position -31.06278897238502 5.119346620926275 14.840680142520096
+  orientation -0.059258495343063336 0.9409892340383389 0.3332081814025829 0.3736312750233107
+  position -22.095392680893777 -5.217119276146512 13.676943922291946
 }
 TexturedBackground {
   luminosity 3
@@ -19,8 +21,6 @@ TexturedBackground {
 }
 Road {
   width 8
-  rightBarrier TRUE
-  leftBarrier TRUE
   wayPoints [
     -5 0 0
     100 0 0
@@ -31,12 +31,29 @@ Road {
   }
   roadBoundingObject TRUE
 }
+OilBarrel {
+  translation 16.93 -1.51 0.44
+}
+OilBarrel {
+  translation 28.11 1.53 0.44
+  name "oil barrel(1)"
+}
+Cow {
+  translation 41.74 -3.12 0
+}
 DEF tesla TeslaModel3 {
   translation -0.00288554 -1.99981 0.342719
   rotation -0.05495379372250648 -0.9977751517737281 -0.03774688143963545 0.012387294262137406
   name "tesla"
   controller "tesla_controller"
   supervisor TRUE
+  sensorsSlotFront [
+    Lidar {
+      fieldOfView 3.14
+      numberOfLayers 6
+      maxRange 5
+    }
+  ]
   sensorsSlotCenter [
     InertialUnit {
     }
