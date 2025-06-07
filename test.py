@@ -4,10 +4,10 @@ from stable_baselines3 import SAC
 
 env = WebotsRemoteEnv()
 model = SAC.load("models/SAC_minimal_tesla.mdl")
-test_episodes = 10
+test_episodes = 100
 
 for i in range(test_episodes):
-    # Modifica qui: estrai solo l'osservazione dal reset()
+    
     # env.reset() ora restituisce (observation, info)
     observation, _ = env.reset() # Il underscore `_` è una convenzione per ignorare il valore `info`
     

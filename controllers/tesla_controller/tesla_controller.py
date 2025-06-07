@@ -54,14 +54,14 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
             self.lidar_min_range = self.lidar.getMinRange()
             self.lidar_max_range = self.lidar.getMaxRange()
             self.num_lidar_sectors = 10
-            self.relevant_lidar_layers_indices = [0,1,2]
+            self.relevant_lidar_layers_indices = [1,2,3]
         else:
             print("ERRORE: Lidar not found!")
         
         self.stall_counter = 0
         self.stall_limit = 60
         #target
-        self.target_x = 50.0  # Esempio: Coordinata X del target
+        self.target_x = 80.0  # Esempio: Coordinata X del target
         self.target_y = 0.0  # Esempio: Coordinata Y del target
         self.target_z = 0.4  # Esempio: Coordinata Z del target (di solito l'altezza sul terreno)
         self.target_threshold = 2 # Metri: quanto vicino deve essere l'auto al target per considerarlo raggiunto
@@ -98,6 +98,8 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         reward = self._compute_reward(current_observations, action)
         self.currentTimestep += 1
         done = self.is_done(current_observations)
+        if(done):
+            print(f"------ Fine episodio! ----- ")
         print_every = 50
         if((self.currentTimestep % print_every) == 0):
             print(f"STEP {self.currentTimestep}: ACTION = {action}  REWARD: {reward}")  # DEBUG
@@ -117,7 +119,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         #tesla imu (angle_x,angle_y,angle_z)
         imu_orientation = [0.0, 0.0, 0.0]
         imu_orientation = np.array(self.imu.getRollPitchYaw(),dtype=np.float32)
-        #telsa lidar
+        #tesla lidar
         lidar_data_raw = self.lidar.getRangeImage()
         lidar_obs_features = np.full(self.num_lidar_sectors, self.lidar_max_range, dtype=np.float32)
 
@@ -285,7 +287,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         self.tesla_translation.setSFVec3f([0.0,-2.0,0.5])
         self.tesla_rotation.setSFRotation([0.0,0.0,1.0,0.0])
         
-        print(f"------ Fine episodio! ----- ")
+        
         self.car.setVelocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.car.resetPhysics()
         self.currentTimestep = 0
