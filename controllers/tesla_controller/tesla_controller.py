@@ -7,166 +7,157 @@ import time
 
 class CustomCarEnv(DeepbotsSupervisorEnv):
 
-    tesla_node = Supervisor()
+    # --- 1. Costanti di configurazione per un tuning più semplice ---
+    MAX_TIMESTEPS = 1000
+    TARGET_X = 80.0
+    TARGET_Y = 0.0
+    TARGET_THRESHOLD = 3.0 # Aumentato leggermente per facilitare il raggiungimento
+    COLLISION_THRESHOLD = 0.4 # Distanza minima prima di considerare una collisione
+    STALL_LIMIT = 200 # Numero di step a velocità quasi nulla prima di terminare
+
+    # --- Pesi per la funzione di reward ---
+    REWARD_GOAL = 100.0
+    REWARD_PROGRESS_MULTIPLIER = 50
+    REWARD_FORWARD_VELOCITY = 0.2
+    PENALTY_COLLISION = -100.0
+    PENALTY_OFF_ROAD = -50.0
+    PENALTY_STALL = -20.0
+    PENALTY_STEERING = 0.5 # Piccola penalità per sterzate eccessive
+    PENALTY_TIME = -0.1 # Piccola penalità per ogni timestep per incentivare la velocità
+    
+    robot = Supervisor()
+
     def __init__(self):
-
+        #super().__init__()
         
-        self.MAX_TIMESTEPS = 1000
-        self.timestep = int(self.tesla_node.getBasicTimeStep())
-        print(f"Timestep: {self.timestep} ms")
-
-        self.left_motor = self.tesla_node.getDevice('left_rear_wheel')
-        self.right_motor = self.tesla_node.getDevice('right_rear_wheel')
-        self.car = self.tesla_node.getFromDef('tesla')
-        self.tesla_translation = self.car.getField('translation')
-        self.tesla_rotation = self.car.getField('rotation')
-
-        self.left_steer = self.tesla_node.getDevice('left_steer')
-        self.right_steer = self.tesla_node.getDevice('right_steer')
-
-        if self.left_motor is None or self.right_motor is None:
-            print("ERRORE: Motori non trovati. Assicurati di usare un nodo basato su 'Car' come TeslaModel3.")
-            exit()
         
-        self.currentTimestep = 0
+        self.timestep = int(self.robot.getBasicTimeStep())
+
+        self.MAX_SPEED = 100
+        self.MAX_STEER_ANGLE = 0.6 # radianti (circa 34 gradi)
+
+        self.car_node = self.robot.getFromDef('tesla')
+        self.tesla_translation = self.car_node.getField('translation')
+        self.tesla_rotation = self.car_node.getField('rotation')
+
+        self.left_motor = self.robot.getDevice('left_rear_wheel')
+        self.right_motor = self.robot.getDevice('right_rear_wheel')
+        self.left_steer = self.robot.getDevice('left_steer')
+        self.right_steer = self.robot.getDevice('right_steer')
         
         self.left_motor.setPosition(float('inf'))
         self.right_motor.setPosition(float('inf'))
-        self.left_steer.setPosition(0.0)
-        self.right_steer.setPosition(0.0)
-        
-        # Sensors
-        self.gps = self.tesla_node.getDevice('gps')
-        if self.gps is not None:
-            self.gps.enable(self.timestep)
-        else:
-            print("AVVISO: GPS not found.")
+        self.left_motor.setVelocity(0.0)
+        self.right_motor.setVelocity(0.0)
 
-        self.imu = self.tesla_node.getDevice('inertial unit')
-        self.lidar = self.tesla_node.getDevice('lidar')
-        #Lidar
-        if self.lidar is not None:
-            self.lidar.enable(self.timestep)
-            self.lidar.enablePointCloud()
-            print(f"Lidar enabled")
-            self.lidar_horizontal_resolution = self.lidar.getHorizontalResolution()
-            self.lidar_number_of_layers = self.lidar.getNumberOfLayers()
-            self.lidar_min_range = self.lidar.getMinRange()
-            self.lidar_max_range = self.lidar.getMaxRange()
-            self.num_lidar_sectors = 10
-            self.relevant_lidar_layers_indices = [1,2,3]
-        else:
-            print("ERRORE: Lidar not found!")
+        # Sensori
+        self.gps = self.robot.getDevice('gps')
+        self.imu = self.robot.getDevice('inertial unit')
+        self.lidar = self.robot.getDevice('lidar')
         
+        self.gps.enable(self.timestep)
+        self.imu.enable(self.timestep)
+        self.lidar.enable(self.timestep)
+        self.lidar.enablePointCloud()
+        
+        self.lidar_horizontal_resolution = self.lidar.getHorizontalResolution()
+        self.lidar_max_range = self.lidar.getMaxRange()
+        self.num_lidar_sectors = 10 # 10 settori per i dati Lidar
+
+        # --- Inizializzazione stato episodio ---
+        self.current_timestep = 0
         self.stall_counter = 0
-        self.stall_limit = 60
-        #target
-        self.target_x = 80.0  # Esempio: Coordinata X del target
-        self.target_y = 0.0  # Esempio: Coordinata Y del target
-        self.target_z = 0.4  # Esempio: Coordinata Z del target (di solito l'altezza sul terreno)
-        self.target_threshold = 2 # Metri: quanto vicino deve essere l'auto al target per considerarlo raggiunto
         self.previous_distance_to_target = 0.0
 
-        if self.imu is not None:
-            self.imu.enable(self.timestep)
-        else:
-            print("AVVISO: Inertial Unit non trovata.")
-        
-        print("Inizializzazione completata.")  # DEBUG
+        print("Ambiente CustomCarEnv inizializzato correttamente.")
 
         self.reset()
 
-    def step(self, action): #on gym the step method returns: obs,reward,done,info
+    def step(self, action):
         
-        left_speed, right_speed = action[0],action[1]
-        speed = (left_speed + right_speed)/2
-        self.left_motor.setVelocity(speed)
-        self.right_motor.setVelocity(speed)
+        # Applica l'azione
+        target_velocity = action[0] * self.MAX_SPEED
+        # Incentiva a non andare in retromarcia se non necessario
+        if target_velocity < 0: target_velocity = 0 
+        
+        steer_angle = action[1] * self.MAX_STEER_ANGLE
 
-        steer_scale_factor = 0.5 #to have a maximum steering angle of 30 degrees
-        steer_angle = steer_scale_factor * action[2]
+        self.left_motor.setVelocity(target_velocity)
+        self.right_motor.setVelocity(target_velocity)
         self.left_steer.setPosition(steer_angle)
         self.right_steer.setPosition(steer_angle)
-        
-        
-        
-        if self.tesla_node.step(self.timestep) == -1:
-            print("Simulazione interrotta durante lo step.")  # DEBUG
-            return None, 0.0, True, {}
 
-        current_observations = self.get_obs()
-        reward = self._compute_reward(current_observations, action)
-        self.currentTimestep += 1
-        done = self.is_done(current_observations)
-        if(done):
-            print(f"------ Fine episodio! ----- ")
+        # Avanza la simulazione
+        if self.robot.step(self.timestep) == -1:
+            return None, 0.0, True, True, {} # obs, reward, terminated, truncated, info
+
+        self.current_timestep += 1
+
+        # Ottieni nuove osservazioni
+        obs = self.get_obs()
+        
+        # Calcola la reward e controlla se l'episodio è terminato
+        reward, terminated = self.get_reward(obs, action)
+        
+        # Controlla se l'episodio deve essere troncato (es. time limit)
+        truncated = self.current_timestep >= self.MAX_TIMESTEPS
+        if truncated:
+            print("--- Episodio troncato per limite di tempo ---")
+        
+        done = terminated or truncated
+        
         print_every = 50
-        if((self.currentTimestep % print_every) == 0):
-            print(f"STEP {self.currentTimestep}: ACTION = {action}  REWARD: {reward}")  # DEBUG
+        if((self.current_timestep % print_every) == 0):
+            print(f"STEP {self.current_timestep}: ACTION = {action}  REWARD: {reward}")  # DEBUG
 
-        return current_observations, reward, done, {}
+        return obs, reward, done, {} # Manteniamo l'output standard di `step` (obs, reward, done, info)
+        
 
     def get_obs(self):
         
-        tesla_velocity_left = np.array([self.left_motor.getVelocity()],dtype=np.float32)
-        tesla_velocity_right = np.array([self.right_motor.getVelocity()],dtype=np.float32)
-        #tesla rotation and translation (x,y,z)
-        #self.tesla_translation.getSFVec3f()
-        tesla_rotation = np.array(self.tesla_rotation.getSFRotation(),dtype=np.float32)
-        #tesla gps (x,y,z)
-        gps_values = [0.0, 0.0, 0.0]
-        gps_values = np.array(self.gps.getValues(),dtype=np.float32)
-        #tesla imu (angle_x,angle_y,angle_z)
-        imu_orientation = [0.0, 0.0, 0.0]
-        imu_orientation = np.array(self.imu.getRollPitchYaw(),dtype=np.float32)
-        #tesla lidar
-        lidar_data_raw = self.lidar.getRangeImage()
-        lidar_obs_features = np.full(self.num_lidar_sectors, self.lidar_max_range, dtype=np.float32)
+        # Velocità delle ruote
+        v_left = self.left_motor.getVelocity()
+        v_right = self.right_motor.getVelocity()
 
-        if lidar_data_raw is not None:
-            lidar_data_np = np.array(lidar_data_raw, dtype=np.float32)
+        # GPS e IMU
+        gps_values = self.gps.getValues()
+        imu_values = self.imu.getRollPitchYaw()
+        
+        # Rotazione (asse-angolo)
+        rotation_values = self.tesla_rotation.getSFRotation()
+
+        # --- 4. Processamento Lidar più efficiente ---
+        lidar_raw = self.lidar.getRangeImage()
+        if not lidar_raw:
+            lidar_sectors = np.full(self.num_lidar_sectors, self.lidar_max_range, dtype=np.float32)
+        else:
+            lidar_full_range = np.array(lidar_raw, dtype=np.float32)
+            # Prendiamo solo i dati centrali, spesso i più rilevanti per la guida
+            central_layer = lidar_full_range[self.lidar_horizontal_resolution : 2*self.lidar_horizontal_resolution]
+            
+            # Sostituiamo inf con max_range per i calcoli
+            central_layer[central_layer == np.inf] = self.lidar_max_range
+            
+            # Dividiamo in settori e prendiamo la distanza minima per settore
             sector_size = self.lidar_horizontal_resolution // self.num_lidar_sectors
-
-            for i in range(self.num_lidar_sectors):
-                start_idx_horizontal = i * sector_size
-                end_idx_horizontal = (i + 1) * sector_size
-                if i == self.num_lidar_sectors - 1:
-                    end_idx_horizontal = self.lidar_horizontal_resolution
-
-                current_sector_min_distance = self.lidar_max_range
-
-                for layer_idx in self.relevant_lidar_layers_indices:
-                    layer_offset = layer_idx * self.lidar_horizontal_resolution
-                    sector_data_for_layer = lidar_data_np[
-                        layer_offset + start_idx_horizontal : layer_offset + end_idx_horizontal
-                    ]
-
-                    valid_distances_in_sector = sector_data_for_layer[
-                        (sector_data_for_layer > self.lidar_min_range) &
-                        (sector_data_for_layer < self.lidar_max_range) &
-                        (~np.isnan(sector_data_for_layer)) &
-                        (~np.isinf(sector_data_for_layer))
-                    ]
-
-                    if len(valid_distances_in_sector) > 0:
-                        current_sector_min_distance = min(current_sector_min_distance, np.min(valid_distances_in_sector))
-
-                range_diff = self.lidar_max_range - self.lidar_min_range
-                if range_diff > 0:
-                    normalized_distance = (current_sector_min_distance - self.lidar_min_range) / range_diff
-                else:
-                    normalized_distance = 0.0 # O un altro valore di default sensato
-
-                lidar_obs_features[i] = normalized_distance
-                lidar_obs_features = np.array(lidar_obs_features,dtype=np.float32)
-                
-        observations = np.concatenate((tesla_velocity_left,tesla_velocity_right,gps_values,
-                                      tesla_rotation,imu_orientation,lidar_obs_features),dtype=np.float32)
+            lidar_sectors = [np.min(central_layer[i*sector_size:(i+1)*sector_size]) for i in range(self.num_lidar_sectors)]
         
-        return observations
+        # Normalizzazione Lidar [0, 1]
+        normalized_lidar = np.clip(np.array(lidar_sectors) / self.lidar_max_range, 0.0, 1.0)
 
-    def _compute_reward(self, obs, action):
+        # Concatenazione di tutte le osservazioni
+        obs = np.concatenate([
+            [v_left, v_right],
+            gps_values,
+            rotation_values,
+            imu_values,
+            normalized_lidar
+        ]).astype(np.float32)
         
+        return obs
+
+    def get_reward(self, obs, action):
+
         # Osservazioni: Assumendo l'ordine in get_obs()
         # [0]: tesla_velocity_left
         # [1]: tesla_velocity_right
@@ -183,121 +174,100 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         # [12-21]: lidar data
 
         #action space
-        # [0]: left motor velocity
-        # [1]: right motor velocity
-        # [2]: steer angle
+        # [0]: velocity
+        # [1]: steer angle
+
         # --- Estrazione ---
-        gps_x, gps_y, gps_z = obs[2], obs[3], obs[4]
-        v_left, v_right = obs[0], obs[1]
-        steer_input = action[2]
-        lidar_sectors = obs[12:22]
+        terminated = False
+        reward = 0.0
         
-        # --- 1. Distanza dal target (più vicino è meglio) ---
-        distance = np.linalg.norm([
-            self.target_x - gps_x,
-            self.target_y - gps_y,
-            self.target_z - gps_z
-        ])
-        distance_reward = 1.0 - np.tanh(distance / 20.0)  # in [0, 1]
+        gps_pos = obs[2:5]
+        lidar_min_dist = np.min(obs[12:]) * self.lidar_max_range # De-normalizza per il controllo
+        avg_speed = (obs[0] + obs[1]) / 2.0
 
-        # --- 2. Accelerazione / avanzamento ---
-        avg_speed = (v_left + v_right) / 2.0
-        acceleration_reward = np.clip(avg_speed / 10.0, 0.0, 1.0)
+        # --- 5. Funzione di Reward Semplice ed Efficace ---
 
-        # --- 3. Sterzata brusca ---
-        steering_penalty = 1.0 - min(abs(steer_input), 1.0)  # in [0,1], sterzata alta = penalità
+        # 1. Penalità di collisione (evento terminale)
+        if lidar_min_dist < self.COLLISION_THRESHOLD:
+            print(f"--- Fine episodio: Collisione! (dist: {lidar_min_dist:.2f}m) ---")
+            terminated = True
+            return self.PENALTY_COLLISION, terminated
 
-        # --- 4. Collisione o prossimità ostacoli ---
-        lidar_min = np.min(lidar_sectors)
-        if lidar_min < 0.1:
-            collision_penalty = 0.0  # collisione o quasi: penalità massima
+        # 2. Penalità per uscita di strada (evento terminale)
+        # Assumiamo che la strada sia attorno a y=0 e z=0.4
+        if abs(gps_pos[1]) > 4.0 or gps_pos[2] < 0.1 or gps_pos[2] > 1.0:
+            print(f"--- Fine episodio: Uscita di strada! (y: {gps_pos[1]:.2f}, z: {gps_pos[2]:.2f}) ---")
+            terminated = True
+            return self.PENALTY_OFF_ROAD, terminated
+            
+        # 3. Controllo dello stallo (evento terminale)
+        if abs(avg_speed) < 0.1:
+            self.stall_counter += 1
         else:
-            collision_penalty = np.clip(lidar_min, 0.0, 1.0)  # più lontano = meglio
-
-        # --- 5. Velocità equilibrata (non troppo lenta né troppo veloce) ---
-        target_speed = 6.0  # m/s ottimale
-        balanced_speed = 1.0 - abs(avg_speed - target_speed) / target_speed
-        balanced_speed = np.clip(balanced_speed, 0.0, 1.0)
-
-        # --- Pesi dei termini ---
-        w_distance = 0.35
-        w_acceleration = 0.2
-        w_steering = 0.15
-        w_safety = 0.2
-        w_balance = 0.1
-
-        total_reward = (
-            w_distance * distance_reward +
-            w_acceleration * acceleration_reward +
-            w_steering * steering_penalty +
-            w_safety * collision_penalty +
-            w_balance * balanced_speed
-        )
-
-        # --- Scala in [0, 100] ---
-        return float(np.clip(total_reward * 100.0, 0.0, 100.0))
+            self.stall_counter = 0 # Resetta se si muove
         
-    
+        if self.stall_counter >= self.STALL_LIMIT:
+            print("--- Fine episodio: Stallo prolungato ---")
+            terminated = True
+            return self.PENALTY_STALL, terminated
 
-    def is_done(self, obs):
-        current_x, current_y, current_z = obs[2], obs[3], obs[4]
-        distance_to_target = np.linalg.norm([
-            self.target_x - current_x,
-            self.target_y - current_y,
-            self.target_z - current_z
-        ])
+        # 4. Raggiungimento del target (evento terminale con grande reward)
+        current_distance_to_target = np.linalg.norm([self.TARGET_X - gps_pos[0], self.TARGET_Y - gps_pos[1]])
+        if current_distance_to_target < self.TARGET_THRESHOLD:
+            print("--- OBIETTIVO RAGGIUNTO! ---")
+            terminated = True
+            return self.REWARD_GOAL, terminated
 
-        # Stop per distanza
-        if distance_to_target < self.target_threshold:
-            print("Traguardo raggiunto!")
-            return True
+        # --- Se l'episodio non è terminato, calcoliamo le reward intermedie ---
+        
+        # Reward per il progresso verso il target (fondamentale)
+        progress = self.previous_distance_to_target - current_distance_to_target
+        reward += progress * self.REWARD_PROGRESS_MULTIPLIER
+        self.previous_distance_to_target = current_distance_to_target
+        
+        # Reward per mantenere una buona velocità in avanti
+        reward += self.REWARD_FORWARD_VELOCITY * np.clip(avg_speed, 0, self.MAX_SPEED)
 
-        # Stop per tempo massimo
-        if self.currentTimestep >= self.MAX_TIMESTEPS:
-            print("Limite di tempo raggiunto!")
-            return True
-
-        # Stop se fuori area definita (es. fuori strada)
-        if abs(current_y) > 5 or current_z < -0.5 or current_z > 1.5:
-            print("Sei uscito dalla strada!")
-            return True
-
-
-        # collisione stimata se troppo vicino e fermo
-        lidar_avg = np.mean(obs[12:22])
-        v_left = obs[0]
-        v_right = obs[1]
-
-        if lidar_avg < 0.5:
-            print("Collisione stimata tramite lidar.")
-            return True
-
-        # Stop per stallo (opzionale)
-        if hasattr(self, "stall_counter") and self.stall_counter >= self.stall_limit:
-            print("Episodio terminato per stallo prolungato.")
-            return True
-
-        return False
+        # Piccola penalità per sterzate brusche (incoraggia guida fluida)
+        steer_angle_action = action[1]
+        reward -= self.PENALTY_STEERING * abs(steer_angle_action)
+        
+        # Piccola penalità costante per ogni timestep (incentiva a finire prima)
+        reward += self.PENALTY_TIME
+        
+        return reward, terminated
 
         
     def reset(self):
 
+        # Resetta la posizione e velocità della Tesla
+        initial_translation = [0.0, -2.0, 0.6]
+        initial_rotation = [0.0, 0.0, 1.0, 0.0]
+        self.tesla_translation.setSFVec3f(initial_translation)
+        self.tesla_rotation.setSFRotation(initial_rotation)
+        self.car_node.setVelocity([0, 0, 0, 0, 0, 0])
         self.left_motor.setVelocity(0.0)
         self.right_motor.setVelocity(0.0)
-        self.tesla_translation.setSFVec3f([0.0,-2.0,0.5])
-        self.tesla_rotation.setSFRotation([0.0,0.0,1.0,0.0])
-        
-        
-        self.car.setVelocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        self.car.resetPhysics()
-        self.currentTimestep = 0
 
-        for _ in range(100):
-            if self.tesla_node.step(self.timestep) == -1:
-                print("Simulazione interrotta durante il reset.") #DEBUG
-                return np.zeros(self.observation_space , dtype=np.float32)
-            
-        return self.get_obs()
+        # Resetta la simulazione
+        self.robot.simulationResetPhysics()
+        #self.robot.simulationReset()
+
+        self.robot.step(self.timestep * 5) # Lascia stabilizzare la simulazione
+        
+        # Resetta le variabili di stato dell'episodio
+        self.current_timestep = 0
+        self.stall_counter = 0
+        
+        # Calcola la distanza iniziale dal target
+        initial_obs = self.get_obs()
+        gps_pos = initial_obs[2:5]
+        self.previous_distance_to_target = np.linalg.norm([
+            self.TARGET_X - gps_pos[0],
+            self.TARGET_Y - gps_pos[1]
+        ])
+
+        return initial_obs
 
 
 # --- Socket server per comunicazione RL esterna ---
@@ -341,7 +311,9 @@ try:
 
                 elif msg['cmd'] == 'exit':
                     print("Comando 'exit' ricevuto.")
-                    env.tesla_node.simulationQuit(0)
+                    env.robot.simulationSetMode(0)
+                    env.robot.simulationReset()
+    
                     break
 
 except Exception as e:
