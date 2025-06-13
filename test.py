@@ -3,7 +3,7 @@ from webots_remote_env import WebotsRemoteEnv
 from stable_baselines3 import SAC
 
 env = WebotsRemoteEnv()
-model = SAC.load("models/SAC_minimal_tesla_2.mdl")
+model = SAC.load("models/SAC_minimal_tesla_3.mdl")
 test_episodes = 100
 
 for i in range(test_episodes):

@@ -11,8 +11,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.17969814359311603 0.06141321477200571 -0.981802930450177 2.4941088517430745
-  position 45.03143812891806 15.35870482347729 9.224102949686657
+  orientation 0.22071124336487694 0.05604887441085629 -0.9737274108956808 2.6567556115491495
+  position 60.24384071163688 16.450675044274014 16.572591466865255
 }
 TexturedBackground {
   luminosity 3
@@ -32,14 +32,14 @@ Road {
   }
   roadBoundingObject TRUE
 }
-OilBarrel {
+DEF obstacle_1 OilBarrel {
   translation 16.93 -1.51 0.44
 }
-OilBarrel {
+DEF obstacle_2 OilBarrel {
   translation 28.11 1.53 0.44
   name "oil barrel(1)"
 }
-Cow {
+DEF obstacle_4 Cow {
   translation 41.74 -3.12 0
 }
 DEF tesla TeslaModel3 {
@@ -61,6 +61,6 @@ DEF tesla TeslaModel3 {
     }
   ]
 }
-Pedestrian {
-  translation 27.15 1.66 1.27
+DEF obstacle_3 Pedestrian {
+  translation 26.78 -2.48 1.27
 }

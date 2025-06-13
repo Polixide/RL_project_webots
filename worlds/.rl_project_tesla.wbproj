@@ -7,4 +7,5 @@ maximizedDockId: -1
 centralWidgetVisible: 1
 orthographicViewHeight: 1
 textFiles: -1
+globalOptionalRendering: LidarRaysPaths
 consoles: Console:All:All

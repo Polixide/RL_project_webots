@@ -30,7 +30,15 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
     def __init__(self):
         #super().__init__()
         
+
+        #initializing obstacles
+        self.num_obstacles = 4
+        self.obstacles = []
+
+        for i in range(self.num_obstacles):
+            self.obstacles.append(self.robot.getFromDef(f"obstacle_{i+1}"))
         
+
         self.timestep = int(self.robot.getBasicTimeStep())
 
         self.MAX_SPEED = 100
@@ -239,17 +247,65 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         
         return reward, terminated
 
+    def apply_UDR_to_obstacles(self): #to apply uniform domain randomization
         
+        range_x = [10,80]
+        range_y = [-3.5,3.5]
+        z = 0.4
+
+        placed_positions = []
+
+        for obstacle in self.obstacles:
+            is_position_valid = False
+            while not is_position_valid:
+                # Genera una nuova posizione casuale
+                new_x = np.random.uniform(range_x[0], range_x[1])
+                new_y = np.random.uniform(range_y[0], range_y[1])
+                new_position = [new_x, new_y, z]
+
+                # Controlla che non sia troppo vicino a un altro ostacolo
+                is_overlapping = any(
+                    np.linalg.norm(np.array(new_position[:2]) - np.array(pos[:2])) < 3
+                    for pos in placed_positions
+                )
+
+                if not is_overlapping:
+                    is_position_valid = True
+
+            # Applica la nuova posizione valida e salvala
+            obstacle.getField('translation').setSFVec3f(new_position)
+            placed_positions.append(new_position)
+    
+    def apply_UDR_to_tesla(self):
+        
+        range_x = [0,5]
+        range_y = [-2,2]
+        new_z = 0.6
+        range_yaw = [-0.3,0.3] #in radiants
+
+        new_x = np.random.uniform(range_x[0],range_x[1])
+        new_y = np.random.uniform(range_y[0],range_y[1])
+        new_yaw = np.random.uniform(range_yaw[0],range_yaw[1])
+
+        new_pos = [new_x,new_y,new_z]
+        new_rot = [0.0,0.0,1.0,new_yaw]
+
+        self.tesla_translation.setSFVec3f(new_pos)
+        self.tesla_rotation.setSFRotation(new_rot)
+
+
     def reset(self):
 
         # Resetta la posizione e velocità della Tesla
-        initial_translation = [0.0, -2.0, 0.6]
-        initial_rotation = [0.0, 0.0, 1.0, 0.0]
-        self.tesla_translation.setSFVec3f(initial_translation)
-        self.tesla_rotation.setSFRotation(initial_rotation)
+        #initial_translation = [0.0, -2.0, 0.6]
+        #initial_rotation = [0.0, 0.0, 1.0, 0.0]
+        #self.tesla_translation.setSFVec3f(initial_translation)
+        #self.tesla_rotation.setSFRotation(initial_rotation)
         self.car_node.setVelocity([0, 0, 0, 0, 0, 0])
         self.left_motor.setVelocity(0.0)
         self.right_motor.setVelocity(0.0)
+        self.apply_UDR_to_obstacles()
+        self.apply_UDR_to_tesla()
 
         # Resetta la simulazione
         self.robot.simulationResetPhysics()
