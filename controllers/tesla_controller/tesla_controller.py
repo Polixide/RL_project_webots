@@ -9,7 +9,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
 
     # --- 1. Costanti di configurazione per un tuning più semplice ---
     MAX_TIMESTEPS = 1000
-    TARGET_X = 80.0
+    TARGET_X = 800.0
     TARGET_Y = 0.0
     TARGET_THRESHOLD = 3.0 # Aumentato leggermente per facilitare il raggiungimento
     COLLISION_THRESHOLD = 0.4 # Distanza minima prima di considerare una collisione
@@ -72,6 +72,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         print("Ambiente CustomCarEnv inizializzato correttamente.")
 
         self.reset()
+
 
     def step(self, action):
         
@@ -155,6 +156,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         ]).astype(np.float32)
         
         return obs
+
 
     def get_reward(self, obs, action):
 

@@ -1,0 +1,202 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/road/protos/Road.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Pavement.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/tesla/TeslaModel3.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
+
+WorldInfo {
+  basicTimeStep 16
+}
+Viewpoint {
+  fieldOfView 0.4
+  orientation -0.19870512129302584 -0.2377678989558813 0.950780048695822 4.841047438955728
+  position -0.04050393845946482 28.70451399183547 12.376613152669785
+}
+Background {
+  skyColor [
+    0.4 0.7 1
+    0 0 0
+    0 0 0
+  ]
+}
+Floor {
+  translation 250 30 0
+  name "green_floor"
+  size 600 200
+  appearance PBRAppearance {
+    baseColor 0 0.6 0.2
+    roughness 1
+    metalness 0
+  }
+}
+Road {
+  translation 0 0 0.01
+  name "main_road"
+  width 8
+  roadBorderHeight 0.2
+  roadBorderWidth [
+    1
+  ]
+  wayPoints [
+    -5 0 0
+    100 0 0
+    150 20 0
+    200 60 0
+    300 60 0
+    350 20 0
+    400 0 0
+    500 0 0
+  ]
+  splineSubdivision 12000
+  appearance Asphalt {
+    colorOverride 0 0 0
+  }
+  pavementAppearance Pavement {
+    type "slate"
+  }
+  roadBoundingObject TRUE
+  rightBorderBoundingObject TRUE
+  leftBorderBoundingObject TRUE
+}
+DEF tesla TeslaModel3 {
+  translation 0 -2 0.4
+  name "tesla"
+  controller "tesla_controller"
+  supervisor TRUE
+  sensorsSlotFront [
+    Lidar {
+      fieldOfView 3.14
+      numberOfLayers 6
+      maxRange 5
+    }
+  ]
+  sensorsSlotCenter [
+    InertialUnit {
+    }
+    GPS {
+    }
+  ]
+}
+DEF Obstacle1 Solid {
+  translation 49.59 -1.81 0.5
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0 0
+        }
+      }
+      geometry Box {
+        size 1 1 1
+      }
+    }
+  ]
+  name "obstacle_1"
+  contactMaterial "red"
+  boundingObject Box {
+    size 1 1 1
+  }
+  recognitionColors [
+    0 0 0
+  ]
+}
+DEF Obstacle2 Solid {
+  translation 220 53.79 0.5
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0 0
+        }
+      }
+      geometry Box {
+        size 1 1 1
+      }
+    }
+  ]
+  name "obstacle_2"
+  boundingObject Box {
+    size 1 1 1
+  }
+}
+DEF Obstacle3 Solid {
+  translation 147.04 19.54 0.5
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0 0
+        }
+      }
+      geometry Box {
+        size 1 1 1
+      }
+    }
+  ]
+  name "obstacle_1(1)"
+  contactMaterial "red"
+  boundingObject Box {
+    size 1 1 1
+  }
+  recognitionColors [
+    0 0 0
+  ]
+}
+DEF Obstacle4 Solid {
+  translation 300 48.39 0.5
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0 0
+        }
+      }
+      geometry Box {
+        size 1 1 1
+      }
+    }
+  ]
+  name "obstacle_3"
+  boundingObject Box {
+    size 1 1 1
+  }
+}
+DEF Obstacle5 Solid {
+  translation 459.81 -1.97 0.5
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0 0
+        }
+      }
+      geometry Box {
+        size 1 1 1
+      }
+    }
+  ]
+  name "obstacle_4"
+  boundingObject Box {
+    size 1 1 1
+  }
+}
+DEF Obstacle6 Solid {
+  translation 400 2.42 0.5
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0 0
+        }
+      }
+      geometry Box {
+        size 1 1 1
+      }
+    }
+  ]
+  name "obstacle_4(1)"
+  boundingObject Box {
+    size 1 1 1
+  }
+}

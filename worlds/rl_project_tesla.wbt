@@ -6,12 +6,13 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/tesla/TeslaModel3.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/obstacles/protos/OilBarrel.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/animals/protos/Cow.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/humans/pedestrian/protos/Pedestrian.proto"
 
 WorldInfo {
 }
 Viewpoint {
   orientation 0.17969814359311603 0.06141321477200571 -0.981802930450177 2.4941088517430745
-  position 30.521655945721264 17.244684841253203 14.865816694454185
+  position 45.03143812891806 15.35870482347729 9.224102949686657
 }
 TexturedBackground {
   luminosity 3
@@ -59,4 +60,7 @@ DEF tesla TeslaModel3 {
     GPS {
     }
   ]
+}
+Pedestrian {
+  translation 27.15 1.66 1.27
 }
