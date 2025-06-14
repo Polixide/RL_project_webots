@@ -1,5 +1,3 @@
 {
-    "python.analysis.extraPaths": [
-        "./controllers/tesla_controller/tesla_"
-    ]
+    
 }

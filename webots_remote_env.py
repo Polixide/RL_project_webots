@@ -5,14 +5,14 @@ import gymnasium as gym
 from gymnasium import spaces
 
 class WebotsRemoteEnv(gym.Env):
-    def __init__(self):
+    def __init__(self,port):
         super().__init__()
 
         self.host = '127.0.0.1'
-        self.port = 10000
+        self.port = port
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.conn.connect((self.host, self.port))
-
+        print(f"WebotsRemoteEnv port: {self.port}")
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(22,), dtype=np.float32)
         self.action_space = spaces.Box(low=-1.0,high=1.0, shape=(2,),dtype=np.float32)
         

@@ -9,6 +9,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/humans/pedestrian/protos/Pedestrian.proto"
 
 WorldInfo {
+  basicTimeStep 32
 }
 Viewpoint {
   orientation 0.22071124336487694 0.05604887441085629 -0.9737274108956808 2.6567556115491495

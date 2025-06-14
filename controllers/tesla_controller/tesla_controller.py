@@ -1,9 +1,12 @@
 from deepbots.supervisor import DeepbotsSupervisorEnv
+import sys
+sys.path.append("/usr/local/webots/lib/controller/python")
 from controller import Robot,Supervisor,Motor,Node
 import numpy as np
 import socket
 import json
 import time
+import os
 
 class CustomCarEnv(DeepbotsSupervisorEnv):
 
@@ -25,11 +28,11 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
     PENALTY_STEERING = 0.5 # Piccola penalità per sterzate eccessive
     PENALTY_TIME = -0.1 # Piccola penalità per ogni timestep per incentivare la velocità
     
-    robot = Supervisor()
+    
 
     def __init__(self):
         #super().__init__()
-        
+        self.robot = Supervisor()
 
         #initializing obstacles
         self.num_obstacles = 4
@@ -79,7 +82,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
 
         print("Ambiente CustomCarEnv inizializzato correttamente.")
 
-        self.reset()
+        #self.reset()
 
 
     def step(self, action):
@@ -327,55 +330,64 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
 
         return initial_obs
 
-
-# --- Socket server per comunicazione RL esterna ---
-HOST = '127.0.0.1'
-PORT = 10000
-
-env = CustomCarEnv()
-
-try:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
-        s.listen(1)
-        print("Controller Webots in ascolto sulla porta", PORT, "...")
-
-        conn, addr = s.accept()
-        with conn:
-            print(f"Connesso a: {addr}")
-            while True:
-                data = conn.recv(1024)
-                if not data:
-                    print("Client disconnesso.")
-                    break
-
-                try:
-                    msg = json.loads(data.decode())
-                except json.JSONDecodeError:
-                    print(f"Errore di decodifica JSON: {data.decode()}")
-                    continue
-
-                if msg['cmd'] == 'reset':
-                    obs = env.reset()
-                    conn.send(json.dumps({'obs': obs.tolist()}).encode())
-
-                elif msg['cmd'] == 'step':
-                    obs, reward, done, _ = env.step(msg['action'])
-                    conn.send(json.dumps({
-                        'obs': obs.tolist(),
-                        'reward': float(reward),
-                        'done': bool(done)
-                    }).encode())
-
-                elif msg['cmd'] == 'exit':
-                    print("Comando 'exit' ricevuto.")
-                    env.robot.simulationSetMode(0)
-                    env.robot.simulationReset()
+if __name__ == '__main__':
     
-                    break
+    # --- Socket server per comunicazione RL esterna ---
+    HOST = '127.0.0.1'
+    PORT = -1
+    try:
+        print(f"os.getenv() ---> {os.getenv('PORT')}")
+        PORT = int(os.getenv('PORT'))
+    except (TypeError, ValueError):
+        print("ERRORE: La variabile d'ambiente PORT non è stata impostata. Uscita.")
+        exit()
 
-except Exception as e:
-    print(f"Errore nel server socket: {e}")
-finally:
-    print("Chiusura del controller Webots.")
+    env = CustomCarEnv()
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            print(f"[WEBOTS] Port = {PORT}")
+            s.bind((HOST, PORT))
+            s.listen(1)
+            print(f"Controller Webots (PID: {os.getpid()}) in ascolto sulla porta {PORT}...")
+
+            conn, addr = s.accept()
+            with conn:
+                print(f"Connesso a: {addr}")
+                while True:
+                    data = conn.recv(1024)
+                    if not data:
+                        print("Client disconnesso.")
+                        break
+
+                    try:
+                        msg = json.loads(data.decode())
+                    except json.JSONDecodeError:
+                        print(f"Errore di decodifica JSON: {data.decode()}")
+                        continue
+
+                    if msg['cmd'] == 'reset':
+                        obs = env.reset()
+                        conn.send(json.dumps({'obs': obs.tolist()}).encode())
+
+                    elif msg['cmd'] == 'step':
+                        obs, reward, done, _ = env.step(msg['action'])
+                        conn.send(json.dumps({
+                            'obs': obs.tolist(),
+                            'reward': float(reward),
+                            'done': bool(done)
+                        }).encode())
+
+                    elif msg['cmd'] == 'exit':
+                        print("Comando 'exit' ricevuto.")
+                        env.robot.simulationSetMode(0)
+                        env.robot.simulationReset()
+                        
+                        break
+
+    except Exception as e:
+        print(f"Errore nel server socket: {e}")
+    finally:
+        print("Chiusura del controller Webots.")
 
