@@ -1,0 +1,11 @@
+{"time":"2025-06-20T16:15:03.6341793+02:00","level":"INFO","msg":"stream: starting","core version":"0.20.1","symlink path":"C:\\Users\\User\\Desktop\\RL_project_webots - easy\\wandb\\run-20250620_161502-ott1ra23\\logs\\debug-core.log"}
+{"time":"2025-06-20T16:15:04.0894327+02:00","level":"INFO","msg":"stream: created new stream","id":"ott1ra23"}
+{"time":"2025-06-20T16:15:04.0899606+02:00","level":"INFO","msg":"stream: started","id":"ott1ra23"}
+{"time":"2025-06-20T16:15:04.0899606+02:00","level":"INFO","msg":"handler: started","stream_id":"ott1ra23"}
+{"time":"2025-06-20T16:15:04.0899606+02:00","level":"INFO","msg":"sender: started","stream_id":"ott1ra23"}
+{"time":"2025-06-20T16:15:04.0899606+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"ott1ra23"}
+{"time":"2025-06-20T16:15:05.6356542+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-06-20T16:15:19.1131166+02:00","level":"WARN","msg":"tensorboard: no root directory","error":"timed out after 10s"}
+{"time":"2025-06-20T16:15:19.1185131+02:00","level":"INFO","msg":"tensorboard: tracking new log directory","rootDir":{},"logDir":"LocalOrCloudPath(LocalPath=\"C:\\\\Users\\\\User\\\\Desktop\\\\RL_project_webots - easy\\\\tb_logs\\\\SAC_1\")","namespace":""}
+{"time":"2025-06-20T16:15:19.1235871+02:00","level":"INFO","msg":"tensorboard: saving file","fileLocation":"C:\\Users\\User\\Desktop\\RL_project_webots - easy\\tb_logs\\SAC_1\\events.out.tfevents.1750428909.Dani.7912.0","runPath":"tb_logs/SAC_1/events.out.tfevents.1750428909.Dani.7912.0"}
+{"time":"2025-06-20T16:15:19.1268325+02:00","level":"ERROR","msg":"tensorboard: error creating symlink","target":"C:\\Users\\User\\Desktop\\RL_project_webots - easy\\tb_logs\\SAC_1\\events.out.tfevents.1750428909.Dani.7912.0","symlink":"C:\\Users\\User\\Desktop\\RL_project_webots - easy\\wandb\\run-20250620_161502-ott1ra23\\files\\tb_logs\\SAC_1\\events.out.tfevents.1750428909.Dani.7912.0","error":"symlink C:\\Users\\User\\Desktop\\RL_project_webots - easy\\tb_logs\\SAC_1\\events.out.tfevents.1750428909.Dani.7912.0 C:\\Users\\User\\Desktop\\RL_project_webots - easy\\wandb\\run-20250620_161502-ott1ra23\\files\\tb_logs\\SAC_1\\events.out.tfevents.1750428909.Dani.7912.0: A required privilege is not held by the client."}

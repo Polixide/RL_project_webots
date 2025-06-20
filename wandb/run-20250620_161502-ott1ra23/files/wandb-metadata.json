@@ -1,0 +1,43 @@
+{
+  "os":  "Windows-10-10.0.22631-SP0",
+  "python":  "CPython 3.10.0",
+  "startedAt":  "2025-06-20T14:15:03.613165Z",
+  "program":  "c:\\Users\\User\\Desktop\\RL_project_webots - easy\\train.py",
+  "codePath":  "train.py",
+  "git":  {
+    "remote":  "https://github.com/Polixide/RL_project_webots.git",
+    "commit":  "9dd4e9f9bd167be07ea25e005540de70dd92c1f1"
+  },
+  "email":  "dani.catalano02@gmail.com",
+  "root":  "C:\\Users\\User\\Desktop\\RL_project_webots - easy",
+  "host":  "Dani",
+  "executable":  "C:\\Users\\User\\Desktop\\RL_project_webots - easy\\venv_rl_webots\\Scripts\\python.exe",
+  "codePathLocal":  "train.py",
+  "cpu_count":  4,
+  "cpu_count_logical":  8,
+  "gpu":  "NVIDIA GeForce GTX 1650",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "254721126400",
+      "used":  "213589757952"
+    }
+  },
+  "memory":  {
+    "total":  "17054289920"
+  },
+  "cpu":  {
+    "count":  4,
+    "countLogical":  8
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce GTX 1650",
+      "memoryTotal":  "4294967296",
+      "cudaCores":  1024,
+      "architecture":  "Turing",
+      "uuid":  "GPU-19a54aad-69cd-4c39-677b-73f3cd6c471e"
+    }
+  ],
+  "cudaVersion":  "12.8"
+}

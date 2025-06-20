@@ -9,28 +9,19 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
 
     # --- 1. Costanti di configurazione per un tuning più semplice ---
     MAX_TIMESTEPS = 1000
-    TARGET_X = 800.0
-    TARGET_Y = 0.0
-    TARGET_THRESHOLD = 3.0 # Aumentato leggermente per facilitare il raggiungimento
+    TARGET_THRESHOLD = 2 # Aumentato leggermente per facilitare il raggiungimento
     COLLISION_THRESHOLD = 0.4 # Distanza minima prima di considerare una collisione
-    STALL_LIMIT = 200 # Numero di step a velocità quasi nulla prima di terminare
+    STALL_LIMIT = 200 # Numero di step a velocità quasi nulla prima di terminare    
+    MAX_SPEED = 80 #rad/s
+    MAX_STEER_ANGLE = 0.7 # radianti (circa 34 gradi)
+    ROAD_WIDTH = 10
+    ROAD_LENGTH = 120
 
-    # --- Pesi per la funzione di reward ---
-    REWARD_GOAL = 100.0
-    REWARD_PROGRESS_MULTIPLIER = 50
-    REWARD_FORWARD_VELOCITY = 0.2
-    PENALTY_COLLISION = -100.0
-    PENALTY_OFF_ROAD = -50.0
-    PENALTY_STALL = -20.0
-    PENALTY_STEERING = 0.5 # Piccola penalità per sterzate eccessive
-    PENALTY_TIME = -0.1 # Piccola penalità per ogni timestep per incentivare la velocità
-    
     robot = Supervisor()
 
     def __init__(self):
-        #super().__init__()
         
-
+        self.episode = 0
         #initializing obstacles
         self.num_obstacles = 4
         self.obstacles = []
@@ -38,12 +29,15 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         for i in range(self.num_obstacles):
             self.obstacles.append(self.robot.getFromDef(f"obstacle_{i+1}"))
         
-
         self.timestep = int(self.robot.getBasicTimeStep())
 
-        self.MAX_SPEED = 100
-        self.MAX_STEER_ANGLE = 0.6 # radianti (circa 34 gradi)
+        #initializing target
+        self.target = self.robot.getFromDef('target')
+        self.target_position = self.target.getField('translation').getSFVec3f()
+        self.TARGET_X = self.target_position[0]
+        self.TARGET_Y = self.target_position[1]
 
+        #initializing the car
         self.car_node = self.robot.getFromDef('tesla')
         self.tesla_translation = self.car_node.getField('translation')
         self.tesla_rotation = self.car_node.getField('rotation')
@@ -86,8 +80,6 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         
         # Applica l'azione
         target_velocity = action[0] * self.MAX_SPEED
-        # Incentiva a non andare in retromarcia se non necessario
-        if target_velocity < 0: target_velocity = 0 
         
         steer_angle = action[1] * self.MAX_STEER_ANGLE
 
@@ -101,7 +93,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
             return None, 0.0, True, True, {} # obs, reward, terminated, truncated, info
 
         self.current_timestep += 1
-
+        
         # Ottieni nuove osservazioni
         obs = self.get_obs()
         
@@ -117,7 +109,13 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         
         print_every = 50
         if((self.current_timestep % print_every) == 0):
-            print(f"STEP {self.current_timestep}: ACTION = {action}  REWARD: {reward}")  # DEBUG
+            print("=====================================")
+            print(f"EPISODE: {self.episode}")
+            print(f"STEP {self.current_timestep} ")  # DEBUG
+            print(f"OBS: {obs}")
+            print(f"REWARD: {reward}")
+            print(f"ACTION: {action}")
+            print("=====================================")
 
         return obs, reward, done, {} # Manteniamo l'output standard di `step` (obs, reward, done, info)
         
@@ -127,40 +125,62 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         # Velocità delle ruote
         v_left = self.left_motor.getVelocity()
         v_right = self.right_motor.getVelocity()
+        mean_v = (v_left + v_right)/2
+        normalized_v = normalize_to_range(mean_v,0,self.MAX_SPEED,0.0,1.0)
 
         # GPS e IMU
         gps_values = self.gps.getValues()
-        imu_values = self.imu.getRollPitchYaw()
-        
-        # Rotazione (asse-angolo)
-        rotation_values = self.tesla_rotation.getSFRotation()
+        normalized_gps_x = normalize_to_range(gps_values[0],0,self.ROAD_LENGTH,0.0,1.0)
+        normalized_gps_y = normalize_to_range(gps_values[1],-self.ROAD_WIDTH/2,self.ROAD_WIDTH/2,-1.0,1.0)
+        normalized_gps_z = normalize_to_range(gps_values[2],0,1,0.0,1.0,True)
+        normalized_gps = [normalized_gps_x,normalized_gps_y,normalized_gps_z]
 
+        imu_values = self.imu.getRollPitchYaw()
+        imu_yaw = imu_values[2]
+        normalized_imu_yaw = normalize_to_range(imu_yaw,-np.pi,np.pi,-1.0,1.0)
         # --- 4. Processamento Lidar più efficiente ---
-        lidar_raw = self.lidar.getRangeImage()
-        if not lidar_raw:
-            lidar_sectors = np.full(self.num_lidar_sectors, self.lidar_max_range, dtype=np.float32)
-        else:
-            lidar_full_range = np.array(lidar_raw, dtype=np.float32)
-            # Prendiamo solo i dati centrali, spesso i più rilevanti per la guida
-            central_layer = lidar_full_range[self.lidar_horizontal_resolution : 2*self.lidar_horizontal_resolution]
-            
-            # Sostituiamo inf con max_range per i calcoli
-            central_layer[central_layer == np.inf] = self.lidar_max_range
-            
-            # Dividiamo in settori e prendiamo la distanza minima per settore
-            sector_size = self.lidar_horizontal_resolution // self.num_lidar_sectors
-            lidar_sectors = [np.min(central_layer[i*sector_size:(i+1)*sector_size]) for i in range(self.num_lidar_sectors)]
-        
-        # Normalizzazione Lidar [0, 1]
-        normalized_lidar = np.clip(np.array(lidar_sectors) / self.lidar_max_range, 0.0, 1.0)
+        # step 1: prepara la range image
+        lidar_raw = np.array(self.lidar.getRangeImage(), dtype=np.float32)
+        lidar_raw[lidar_raw == np.inf] = self.lidar_max_range
+
+        res = self.lidar.getHorizontalResolution()
+        layers = self.lidar.getNumberOfLayers()
+        sectors = 10
+        sector_size = res // sectors
+
+        lidar_sectors = []
+
+        for i in range(sectors):
+            all_layer_sector = []
+
+            for l in range(layers):
+                start = l * res + i * sector_size
+                end = start + sector_size
+                sector_slice = lidar_raw[start:end]
+                all_layer_sector.append(np.min(sector_slice))  # puoi anche considerare np.mean()
+
+            # step 2: informazione utile = minimo dei layer
+            sector_value = min(all_layer_sector)
+
+            # step 3: amplifica i settori più pericolosi (vicini)
+            danger_amplified = (self.lidar_max_range - sector_value) / self.lidar_max_range
+            lidar_sectors.append(danger_amplified)
+
+        normalized_lidar = np.clip(np.array(lidar_sectors), 0.0, 1.0)
+
+        target_distance  = np.linalg.norm([
+            self.TARGET_X - gps_values[0],
+            self.TARGET_Y - gps_values[1]
+        ])
+        normalized_target_distance = normalize_to_range(target_distance,0,self.ROAD_LENGTH,0.0,1.0)
 
         # Concatenazione di tutte le osservazioni
         obs = np.concatenate([
-            [v_left, v_right],
-            gps_values,
-            rotation_values,
-            imu_values,
-            normalized_lidar
+            [normalized_v], #mean velocity
+            normalized_gps, #
+            [normalized_target_distance],
+            [normalized_imu_yaw], #only the imu_yaw
+            normalized_lidar #10 values 
         ]).astype(np.float32)
         
         return obs
@@ -169,19 +189,13 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
     def get_reward(self, obs, action):
 
         # Osservazioni: Assumendo l'ordine in get_obs()
-        # [0]: tesla_velocity_left
-        # [1]: tesla_velocity_right
-        # [2]: gps_x
-        # [3]: gps_y
-        # [4]: gps_z
-        # [5]: tesla_rotation_x (asse)
-        # [6]: tesla_rotation_y (asse)
-        # [7]: tesla_rotation_z (asse)
-        # [8]: tesla_rotation_angle
-        # [9]: imu_roll
-        # [10]: imu_pitch
-        # [11]: imu_yaw
-        # [12-21]: lidar data
+        # [0]: tesla_mean_velocity  ---> [0,1]
+        # [1]: gps_x ---> [0,1]
+        # [2]: gps_y ---> [-1,1]
+        # [3]: gps_z ---> [-1,1]
+        # [4]: target_distance ---> [0,1]
+        # [5]: tesla_imu_yaw ---> [-1,1]
+        # [6-15]: lidar  ---> [0,1]
 
         #action space
         # [0]: velocity
@@ -190,61 +204,66 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         # --- Estrazione ---
         terminated = False
         reward = 0.0
-        
-        gps_pos = obs[2:5]
-        lidar_min_dist = np.min(obs[12:]) * self.lidar_max_range # De-normalizza per il controllo
-        avg_speed = (obs[0] + obs[1]) / 2.0
+        # --- Parametri ---
+        steer = action[1]
+        mean_v = obs[0] * self.MAX_SPEED
+        gps_x = obs[1] * self.ROAD_LENGTH
+        gps_y = obs[2] * (self.ROAD_WIDTH / 2)
+        gps_z = obs[3] * 1
+        target_distance = obs[4] * self.ROAD_LENGTH
+        tesla_yaw = obs[5] * np.pi
+        lidar = obs[6:16] #contains the risk factor
 
-        # --- 5. Funzione di Reward Semplice ed Efficace ---
+        # --- 1. Progresso verso il target ---
+        progress = self.previous_distance_to_target - target_distance
+        reward += progress * 60
+        self.previous_distance_to_target = target_distance
 
-        # 1. Penalità di collisione (evento terminale)
-        if lidar_min_dist < self.COLLISION_THRESHOLD:
-            print(f"--- Fine episodio: Collisione! (dist: {lidar_min_dist:.2f}m) ---")
+        # --- 2. Velocità ---
+        reward += mean_v * 0.5
+
+        # --- 3. Penalità sterzate forti ---
+        reward -= abs(tesla_yaw) * 1.0  # oppure un valore più basso tipo 0.5
+
+        # --- 4. Penalità prossimità ostacoli ---
+        risk_score = np.sum(np.array(lidar) ** 2)
+        reward -= risk_score * 10.0
+
+        weights = np.array([1, 1.5, 2, 3, 4, 4, 3, 2, 1.5, 1])
+        directional_penalty = np.sum(weights * (np.array(lidar) ** 2))
+        reward -= directional_penalty * 2.5
+
+        if np.max(lidar) > 0.95:
+            reward -= 50.0
             terminated = True
-            return self.PENALTY_COLLISION, terminated
 
-        # 2. Penalità per uscita di strada (evento terminale)
-        # Assumiamo che la strada sia attorno a y=0 e z=0.4
-        if abs(gps_pos[1]) > 4.0 or gps_pos[2] < 0.1 or gps_pos[2] > 1.0:
-            print(f"--- Fine episodio: Uscita di strada! (y: {gps_pos[1]:.2f}, z: {gps_pos[2]:.2f}) ---")
+        # --- 6. Penalità costante temporale ---
+        reward -= 0.1
+
+        # --- 7. Penalità / terminazione eventi critici ---
+
+        if abs(gps_y) > (self.ROAD_WIDTH/2) or gps_z < 0 or gps_z > 1.0:
+            print("--- Fuori strada ---")
+            reward -= 30.0
             terminated = True
-            return self.PENALTY_OFF_ROAD, terminated
-            
-        # 3. Controllo dello stallo (evento terminale)
-        if abs(avg_speed) < 0.1:
+
+        if mean_v < 0.1:
             self.stall_counter += 1
         else:
-            self.stall_counter = 0 # Resetta se si muove
-        
+            self.stall_counter = 0
+
         if self.stall_counter >= self.STALL_LIMIT:
-            print("--- Fine episodio: Stallo prolungato ---")
+            print("--- Stallo ---")
+            reward -= 20.0
             terminated = True
-            return self.PENALTY_STALL, terminated
 
-        # 4. Raggiungimento del target (evento terminale con grande reward)
-        current_distance_to_target = np.linalg.norm([self.TARGET_X - gps_pos[0], self.TARGET_Y - gps_pos[1]])
-        if current_distance_to_target < self.TARGET_THRESHOLD:
-            print("--- OBIETTIVO RAGGIUNTO! ---")
+        if target_distance < self.TARGET_THRESHOLD:
+            print("--- Obiettivo raggiunto ---")
+            reward += 100.0
             terminated = True
-            return self.REWARD_GOAL, terminated
 
-        # --- Se l'episodio non è terminato, calcoliamo le reward intermedie ---
-        
-        # Reward per il progresso verso il target (fondamentale)
-        progress = self.previous_distance_to_target - current_distance_to_target
-        reward += progress * self.REWARD_PROGRESS_MULTIPLIER
-        self.previous_distance_to_target = current_distance_to_target
-        
-        # Reward per mantenere una buona velocità in avanti
-        reward += self.REWARD_FORWARD_VELOCITY * np.clip(avg_speed, 0, self.MAX_SPEED)
+        reward = reward * 0.1
 
-        # Piccola penalità per sterzate brusche (incoraggia guida fluida)
-        steer_angle_action = action[1]
-        reward -= self.PENALTY_STEERING * abs(steer_angle_action)
-        
-        # Piccola penalità costante per ogni timestep (incentiva a finire prima)
-        reward += self.PENALTY_TIME
-        
         return reward, terminated
 
     def apply_UDR_to_obstacles(self): #to apply uniform domain randomization
@@ -297,85 +316,110 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
     def reset(self):
 
         # Resetta la posizione e velocità della Tesla
-        #initial_translation = [0.0, -2.0, 0.6]
-        #initial_rotation = [0.0, 0.0, 1.0, 0.0]
-        #self.tesla_translation.setSFVec3f(initial_translation)
-        #self.tesla_rotation.setSFRotation(initial_rotation)
+        initial_translation = [0.0, -2.0, 0.6]
+        initial_rotation = [0.0, 0.0, 1.0, 0.0]
+        self.tesla_translation.setSFVec3f(initial_translation)
+        self.tesla_rotation.setSFRotation(initial_rotation)
         self.car_node.setVelocity([0, 0, 0, 0, 0, 0])
         self.left_motor.setVelocity(0.0)
         self.right_motor.setVelocity(0.0)
-        self.apply_UDR_to_obstacles()
-        self.apply_UDR_to_tesla()
+        #self.apply_UDR_to_obstacles()
+        #self.apply_UDR_to_tesla()
 
         # Resetta la simulazione
         self.robot.simulationResetPhysics()
-        #self.robot.simulationReset()
 
         self.robot.step(self.timestep * 5) # Lascia stabilizzare la simulazione
         
         # Resetta le variabili di stato dell'episodio
         self.current_timestep = 0
         self.stall_counter = 0
-        
+        self.episode += 1
         # Calcola la distanza iniziale dal target
         initial_obs = self.get_obs()
-        gps_pos = initial_obs[2:5]
+        gps_pos = initial_obs[1:4]
+        gps_x = gps_pos[0] * self.ROAD_LENGTH
+        gps_y = gps_pos[1] * (self.ROAD_WIDTH / 2)
         self.previous_distance_to_target = np.linalg.norm([
-            self.TARGET_X - gps_pos[0],
-            self.TARGET_Y - gps_pos[1]
+            self.TARGET_X - gps_x,
+            self.TARGET_Y - gps_y
         ])
 
         return initial_obs
 
+def normalize_to_range(value, min_val, max_val, new_min=0.0, new_max=1.0, clip=False):
+    """
+    Normalizza 'value' da [min_val, max_val] a [new_min, new_max].
+
+    Args:
+        value (float): valore da normalizzare
+        min_val (float): valore minimo del range originale
+        max_val (float): valore massimo del range originale
+        new_min (float): valore minimo del nuovo range (default: 0.0)
+        new_max (float): valore massimo del nuovo range (default: 1.0)
+        clip (bool): se True, forza il valore normalizzato a stare nel nuovo intervallo
+
+    Returns:
+        float: valore normalizzato
+    """
+    if max_val == min_val:
+        raise ValueError("Failed to normalize , min_val = max_val !")
+
+    normalized = (value - min_val) * (new_max - new_min) / (max_val - min_val) + new_min
+
+    if clip:
+        return np.clip(normalized, new_min, new_max)
+    return normalized
 
 # --- Socket server per comunicazione RL esterna ---
-HOST = '127.0.0.1'
-PORT = 10000
+if __name__=='__main__':
+    HOST = '127.0.0.1'
+    PORT = 10000
 
-env = CustomCarEnv()
+    env = CustomCarEnv()
 
-try:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
-        s.listen(1)
-        print("Controller Webots in ascolto sulla porta", PORT, "...")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((HOST, PORT))
+            s.listen(1)
+            print("Controller Webots in ascolto sulla porta", PORT, "...")
 
-        conn, addr = s.accept()
-        with conn:
-            print(f"Connesso a: {addr}")
-            while True:
-                data = conn.recv(1024)
-                if not data:
-                    print("Client disconnesso.")
-                    break
+            conn, addr = s.accept()
+            with conn:
+                print(f"Connesso a: {addr}")
+                while True:
+                    data = conn.recv(1024)
+                    if not data:
+                        print("Client disconnesso.")
+                        break
 
-                try:
-                    msg = json.loads(data.decode())
-                except json.JSONDecodeError:
-                    print(f"Errore di decodifica JSON: {data.decode()}")
-                    continue
+                    try:
+                        msg = json.loads(data.decode())
+                    except json.JSONDecodeError:
+                        print(f"Errore di decodifica JSON: {data.decode()}")
+                        continue
 
-                if msg['cmd'] == 'reset':
-                    obs = env.reset()
-                    conn.send(json.dumps({'obs': obs.tolist()}).encode())
+                    if msg['cmd'] == 'reset':
+                        obs = env.reset()
+                        conn.send(json.dumps({'obs': obs.tolist()}).encode())
 
-                elif msg['cmd'] == 'step':
-                    obs, reward, done, _ = env.step(msg['action'])
-                    conn.send(json.dumps({
-                        'obs': obs.tolist(),
-                        'reward': float(reward),
-                        'done': bool(done)
-                    }).encode())
+                    elif msg['cmd'] == 'step':
+                        obs, reward, done, _ = env.step(msg['action'])
+                        conn.send(json.dumps({
+                            'obs': obs.tolist(),
+                            'reward': float(reward),
+                            'done': bool(done)
+                        }).encode())
 
-                elif msg['cmd'] == 'exit':
-                    print("Comando 'exit' ricevuto.")
-                    env.robot.simulationSetMode(0)
-                    env.robot.simulationReset()
-    
-                    break
+                    elif msg['cmd'] == 'exit':
+                        print("Comando 'exit' ricevuto.")
+                        env.robot.simulationSetMode(0)
+                        env.robot.simulationReset()
+        
+                        break
 
-except Exception as e:
-    print(f"Errore nel server socket: {e}")
-finally:
-    print("Chiusura del controller Webots.")
+    except Exception as e:
+        print(f"Errore nel server socket: {e}")
+    finally:
+        print("Chiusura del controller Webots.")
 

@@ -1,0 +1,957 @@
+warning: in the working copy of 'worlds/.rl_project_tesla.wbproj', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'worlds/rl_project_tesla.wbt', LF will be replaced by CRLF the next time Git touches it
+diff --git a/__pycache__/webots_remote_env.cpython-310.pyc b/__pycache__/webots_remote_env.cpython-310.pyc
+index a41c8ea..9eb8e01 100644
+Binary files a/__pycache__/webots_remote_env.cpython-310.pyc and b/__pycache__/webots_remote_env.cpython-310.pyc differ
+diff --git a/controllers/tesla_controller/tesla_controller.py b/controllers/tesla_controller/tesla_controller.py
+index 5e005d7..5f5e9a5 100644
+--- a/controllers/tesla_controller/tesla_controller.py
++++ b/controllers/tesla_controller/tesla_controller.py
+@@ -9,28 +9,19 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+ 
+     # --- 1. Costanti di configurazione per un tuning più semplice ---
+     MAX_TIMESTEPS = 1000
+-    TARGET_X = 800.0
+-    TARGET_Y = 0.0
+-    TARGET_THRESHOLD = 3.0 # Aumentato leggermente per facilitare il raggiungimento
++    TARGET_THRESHOLD = 2 # Aumentato leggermente per facilitare il raggiungimento
+     COLLISION_THRESHOLD = 0.4 # Distanza minima prima di considerare una collisione
+-    STALL_LIMIT = 200 # Numero di step a velocità quasi nulla prima di terminare
+-
+-    # --- Pesi per la funzione di reward ---
+-    REWARD_GOAL = 100.0
+-    REWARD_PROGRESS_MULTIPLIER = 50
+-    REWARD_FORWARD_VELOCITY = 0.2
+-    PENALTY_COLLISION = -100.0
+-    PENALTY_OFF_ROAD = -50.0
+-    PENALTY_STALL = -20.0
+-    PENALTY_STEERING = 0.5 # Piccola penalità per sterzate eccessive
+-    PENALTY_TIME = -0.1 # Piccola penalità per ogni timestep per incentivare la velocità
+-    
++    STALL_LIMIT = 200 # Numero di step a velocità quasi nulla prima di terminare    
++    MAX_SPEED = 80 #rad/s
++    MAX_STEER_ANGLE = 0.7 # radianti (circa 34 gradi)
++    ROAD_WIDTH = 10
++    ROAD_LENGTH = 120
++
+     robot = Supervisor()
+ 
+     def __init__(self):
+-        #super().__init__()
+         
+-
++        self.episode = 0
+         #initializing obstacles
+         self.num_obstacles = 4
+         self.obstacles = []
+@@ -38,12 +29,15 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+         for i in range(self.num_obstacles):
+             self.obstacles.append(self.robot.getFromDef(f"obstacle_{i+1}"))
+         
+-
+         self.timestep = int(self.robot.getBasicTimeStep())
+ 
+-        self.MAX_SPEED = 100
+-        self.MAX_STEER_ANGLE = 0.6 # radianti (circa 34 gradi)
++        #initializing target
++        self.target = self.robot.getFromDef('target')
++        self.target_position = self.target.getField('translation').getSFVec3f()
++        self.TARGET_X = self.target_position[0]
++        self.TARGET_Y = self.target_position[1]
+ 
++        #initializing the car
+         self.car_node = self.robot.getFromDef('tesla')
+         self.tesla_translation = self.car_node.getField('translation')
+         self.tesla_rotation = self.car_node.getField('rotation')
+@@ -86,8 +80,6 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+         
+         # Applica l'azione
+         target_velocity = action[0] * self.MAX_SPEED
+-        # Incentiva a non andare in retromarcia se non necessario
+-        if target_velocity < 0: target_velocity = 0 
+         
+         steer_angle = action[1] * self.MAX_STEER_ANGLE
+ 
+@@ -101,7 +93,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+             return None, 0.0, True, True, {} # obs, reward, terminated, truncated, info
+ 
+         self.current_timestep += 1
+-
++        
+         # Ottieni nuove osservazioni
+         obs = self.get_obs()
+         
+@@ -117,7 +109,13 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+         
+         print_every = 50
+         if((self.current_timestep % print_every) == 0):
+-            print(f"STEP {self.current_timestep}: ACTION = {action}  REWARD: {reward}")  # DEBUG
++            print("=====================================")
++            print(f"EPISODE: {self.episode}")
++            print(f"STEP {self.current_timestep} ")  # DEBUG
++            print(f"OBS: {obs}")
++            print(f"REWARD: {reward}")
++            print(f"ACTION: {action}")
++            print("=====================================")
+ 
+         return obs, reward, done, {} # Manteniamo l'output standard di `step` (obs, reward, done, info)
+         
+@@ -127,40 +125,62 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+         # Velocità delle ruote
+         v_left = self.left_motor.getVelocity()
+         v_right = self.right_motor.getVelocity()
++        mean_v = (v_left + v_right)/2
++        normalized_v = normalize_to_range(mean_v,0,self.MAX_SPEED,0.0,1.0)
+ 
+         # GPS e IMU
+         gps_values = self.gps.getValues()
+-        imu_values = self.imu.getRollPitchYaw()
+-        
+-        # Rotazione (asse-angolo)
+-        rotation_values = self.tesla_rotation.getSFRotation()
++        normalized_gps_x = normalize_to_range(gps_values[0],0,self.ROAD_LENGTH,0.0,1.0)
++        normalized_gps_y = normalize_to_range(gps_values[1],-self.ROAD_WIDTH/2,self.ROAD_WIDTH/2,-1.0,1.0)
++        normalized_gps_z = normalize_to_range(gps_values[2],0,1,0.0,1.0,True)
++        normalized_gps = [normalized_gps_x,normalized_gps_y,normalized_gps_z]
+ 
++        imu_values = self.imu.getRollPitchYaw()
++        imu_yaw = imu_values[2]
++        normalized_imu_yaw = normalize_to_range(imu_yaw,-np.pi,np.pi,-1.0,1.0)
+         # --- 4. Processamento Lidar più efficiente ---
+-        lidar_raw = self.lidar.getRangeImage()
+-        if not lidar_raw:
+-            lidar_sectors = np.full(self.num_lidar_sectors, self.lidar_max_range, dtype=np.float32)
+-        else:
+-            lidar_full_range = np.array(lidar_raw, dtype=np.float32)
+-            # Prendiamo solo i dati centrali, spesso i più rilevanti per la guida
+-            central_layer = lidar_full_range[self.lidar_horizontal_resolution : 2*self.lidar_horizontal_resolution]
+-            
+-            # Sostituiamo inf con max_range per i calcoli
+-            central_layer[central_layer == np.inf] = self.lidar_max_range
+-            
+-            # Dividiamo in settori e prendiamo la distanza minima per settore
+-            sector_size = self.lidar_horizontal_resolution // self.num_lidar_sectors
+-            lidar_sectors = [np.min(central_layer[i*sector_size:(i+1)*sector_size]) for i in range(self.num_lidar_sectors)]
+-        
+-        # Normalizzazione Lidar [0, 1]
+-        normalized_lidar = np.clip(np.array(lidar_sectors) / self.lidar_max_range, 0.0, 1.0)
++        # step 1: prepara la range image
++        lidar_raw = np.array(self.lidar.getRangeImage(), dtype=np.float32)
++        lidar_raw[lidar_raw == np.inf] = self.lidar_max_range
++
++        res = self.lidar.getHorizontalResolution()
++        layers = self.lidar.getNumberOfLayers()
++        sectors = 10
++        sector_size = res // sectors
++
++        lidar_sectors = []
++
++        for i in range(sectors):
++            all_layer_sector = []
++
++            for l in range(layers):
++                start = l * res + i * sector_size
++                end = start + sector_size
++                sector_slice = lidar_raw[start:end]
++                all_layer_sector.append(np.min(sector_slice))  # puoi anche considerare np.mean()
++
++            # step 2: informazione utile = minimo dei layer
++            sector_value = min(all_layer_sector)
++
++            # step 3: amplifica i settori più pericolosi (vicini)
++            danger_amplified = (self.lidar_max_range - sector_value) / self.lidar_max_range
++            lidar_sectors.append(danger_amplified)
++
++        normalized_lidar = np.clip(np.array(lidar_sectors), 0.0, 1.0)
++
++        target_distance  = np.linalg.norm([
++            self.TARGET_X - gps_values[0],
++            self.TARGET_Y - gps_values[1]
++        ])
++        normalized_target_distance = normalize_to_range(target_distance,0,self.ROAD_LENGTH,0.0,1.0)
+ 
+         # Concatenazione di tutte le osservazioni
+         obs = np.concatenate([
+-            [v_left, v_right],
+-            gps_values,
+-            rotation_values,
+-            imu_values,
+-            normalized_lidar
++            [normalized_v], #mean velocity
++            normalized_gps, #
++            [normalized_target_distance],
++            [normalized_imu_yaw], #only the imu_yaw
++            normalized_lidar #10 values 
+         ]).astype(np.float32)
+         
+         return obs
+@@ -169,19 +189,13 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+     def get_reward(self, obs, action):
+ 
+         # Osservazioni: Assumendo l'ordine in get_obs()
+-        # [0]: tesla_velocity_left
+-        # [1]: tesla_velocity_right
+-        # [2]: gps_x
+-        # [3]: gps_y
+-        # [4]: gps_z
+-        # [5]: tesla_rotation_x (asse)
+-        # [6]: tesla_rotation_y (asse)
+-        # [7]: tesla_rotation_z (asse)
+-        # [8]: tesla_rotation_angle
+-        # [9]: imu_roll
+-        # [10]: imu_pitch
+-        # [11]: imu_yaw
+-        # [12-21]: lidar data
++        # [0]: tesla_mean_velocity  ---> [0,1]
++        # [1]: gps_x ---> [0,1]
++        # [2]: gps_y ---> [-1,1]
++        # [3]: gps_z ---> [-1,1]
++        # [4]: target_distance ---> [0,1]
++        # [5]: tesla_imu_yaw ---> [-1,1]
++        # [6-15]: lidar  ---> [0,1]
+ 
+         #action space
+         # [0]: velocity
+@@ -190,61 +204,66 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+         # --- Estrazione ---
+         terminated = False
+         reward = 0.0
+-        
+-        gps_pos = obs[2:5]
+-        lidar_min_dist = np.min(obs[12:]) * self.lidar_max_range # De-normalizza per il controllo
+-        avg_speed = (obs[0] + obs[1]) / 2.0
++        # --- Parametri ---
++        steer = action[1]
++        mean_v = obs[0] * self.MAX_SPEED
++        gps_x = obs[1] * self.ROAD_LENGTH
++        gps_y = obs[2] * (self.ROAD_WIDTH / 2)
++        gps_z = obs[3] * 1
++        target_distance = obs[4] * self.ROAD_LENGTH
++        tesla_yaw = obs[5] * np.pi
++        lidar = obs[6:16] #contains the risk factor
++
++        # --- 1. Progresso verso il target ---
++        progress = self.previous_distance_to_target - target_distance
++        reward += progress * 60
++        self.previous_distance_to_target = target_distance
++
++        # --- 2. Velocità ---
++        reward += mean_v * 0.5
++
++        # --- 3. Penalità sterzate forti ---
++        reward -= abs(tesla_yaw) * 1.0  # oppure un valore più basso tipo 0.5
++
++        # --- 4. Penalità prossimità ostacoli ---
++        risk_score = np.sum(np.array(lidar) ** 2)
++        reward -= risk_score * 10.0
++
++        weights = np.array([1, 1.5, 2, 3, 4, 4, 3, 2, 1.5, 1])
++        directional_penalty = np.sum(weights * (np.array(lidar) ** 2))
++        reward -= directional_penalty * 2.5
++
++        if np.max(lidar) > 0.95:
++            reward -= 50.0
++            terminated = True
+ 
+-        # --- 5. Funzione di Reward Semplice ed Efficace ---
++        # --- 6. Penalità costante temporale ---
++        reward -= 0.1
+ 
+-        # 1. Penalità di collisione (evento terminale)
+-        if lidar_min_dist < self.COLLISION_THRESHOLD:
+-            print(f"--- Fine episodio: Collisione! (dist: {lidar_min_dist:.2f}m) ---")
+-            terminated = True
+-            return self.PENALTY_COLLISION, terminated
++        # --- 7. Penalità / terminazione eventi critici ---
+ 
+-        # 2. Penalità per uscita di strada (evento terminale)
+-        # Assumiamo che la strada sia attorno a y=0 e z=0.4
+-        if abs(gps_pos[1]) > 4.0 or gps_pos[2] < 0.1 or gps_pos[2] > 1.0:
+-            print(f"--- Fine episodio: Uscita di strada! (y: {gps_pos[1]:.2f}, z: {gps_pos[2]:.2f}) ---")
++        if abs(gps_y) > (self.ROAD_WIDTH/2) or gps_z < 0 or gps_z > 1.0:
++            print("--- Fuori strada ---")
++            reward -= 30.0
+             terminated = True
+-            return self.PENALTY_OFF_ROAD, terminated
+-            
+-        # 3. Controllo dello stallo (evento terminale)
+-        if abs(avg_speed) < 0.1:
++
++        if mean_v < 0.1:
+             self.stall_counter += 1
+         else:
+-            self.stall_counter = 0 # Resetta se si muove
+-        
++            self.stall_counter = 0
++
+         if self.stall_counter >= self.STALL_LIMIT:
+-            print("--- Fine episodio: Stallo prolungato ---")
++            print("--- Stallo ---")
++            reward -= 20.0
+             terminated = True
+-            return self.PENALTY_STALL, terminated
+ 
+-        # 4. Raggiungimento del target (evento terminale con grande reward)
+-        current_distance_to_target = np.linalg.norm([self.TARGET_X - gps_pos[0], self.TARGET_Y - gps_pos[1]])
+-        if current_distance_to_target < self.TARGET_THRESHOLD:
+-            print("--- OBIETTIVO RAGGIUNTO! ---")
++        if target_distance < self.TARGET_THRESHOLD:
++            print("--- Obiettivo raggiunto ---")
++            reward += 100.0
+             terminated = True
+-            return self.REWARD_GOAL, terminated
+ 
+-        # --- Se l'episodio non è terminato, calcoliamo le reward intermedie ---
+-        
+-        # Reward per il progresso verso il target (fondamentale)
+-        progress = self.previous_distance_to_target - current_distance_to_target
+-        reward += progress * self.REWARD_PROGRESS_MULTIPLIER
+-        self.previous_distance_to_target = current_distance_to_target
+-        
+-        # Reward per mantenere una buona velocità in avanti
+-        reward += self.REWARD_FORWARD_VELOCITY * np.clip(avg_speed, 0, self.MAX_SPEED)
++        reward = reward * 0.1
+ 
+-        # Piccola penalità per sterzate brusche (incoraggia guida fluida)
+-        steer_angle_action = action[1]
+-        reward -= self.PENALTY_STEERING * abs(steer_angle_action)
+-        
+-        # Piccola penalità costante per ogni timestep (incentiva a finire prima)
+-        reward += self.PENALTY_TIME
+-        
+         return reward, terminated
+ 
+     def apply_UDR_to_obstacles(self): #to apply uniform domain randomization
+@@ -297,85 +316,110 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
+     def reset(self):
+ 
+         # Resetta la posizione e velocità della Tesla
+-        #initial_translation = [0.0, -2.0, 0.6]
+-        #initial_rotation = [0.0, 0.0, 1.0, 0.0]
+-        #self.tesla_translation.setSFVec3f(initial_translation)
+-        #self.tesla_rotation.setSFRotation(initial_rotation)
++        initial_translation = [0.0, -2.0, 0.6]
++        initial_rotation = [0.0, 0.0, 1.0, 0.0]
++        self.tesla_translation.setSFVec3f(initial_translation)
++        self.tesla_rotation.setSFRotation(initial_rotation)
+         self.car_node.setVelocity([0, 0, 0, 0, 0, 0])
+         self.left_motor.setVelocity(0.0)
+         self.right_motor.setVelocity(0.0)
+-        self.apply_UDR_to_obstacles()
+-        self.apply_UDR_to_tesla()
++        #self.apply_UDR_to_obstacles()
++        #self.apply_UDR_to_tesla()
+ 
+         # Resetta la simulazione
+         self.robot.simulationResetPhysics()
+-        #self.robot.simulationReset()
+ 
+         self.robot.step(self.timestep * 5) # Lascia stabilizzare la simulazione
+         
+         # Resetta le variabili di stato dell'episodio
+         self.current_timestep = 0
+         self.stall_counter = 0
+-        
++        self.episode += 1
+         # Calcola la distanza iniziale dal target
+         initial_obs = self.get_obs()
+-        gps_pos = initial_obs[2:5]
++        gps_pos = initial_obs[1:4]
++        gps_x = gps_pos[0] * self.ROAD_LENGTH
++        gps_y = gps_pos[1] * (self.ROAD_WIDTH / 2)
+         self.previous_distance_to_target = np.linalg.norm([
+-            self.TARGET_X - gps_pos[0],
+-            self.TARGET_Y - gps_pos[1]
++            self.TARGET_X - gps_x,
++            self.TARGET_Y - gps_y
+         ])
+ 
+         return initial_obs
+ 
++def normalize_to_range(value, min_val, max_val, new_min=0.0, new_max=1.0, clip=False):
++    """
++    Normalizza 'value' da [min_val, max_val] a [new_min, new_max].
++
++    Args:
++        value (float): valore da normalizzare
++        min_val (float): valore minimo del range originale
++        max_val (float): valore massimo del range originale
++        new_min (float): valore minimo del nuovo range (default: 0.0)
++        new_max (float): valore massimo del nuovo range (default: 1.0)
++        clip (bool): se True, forza il valore normalizzato a stare nel nuovo intervallo
++
++    Returns:
++        float: valore normalizzato
++    """
++    if max_val == min_val:
++        raise ValueError("Failed to normalize , min_val = max_val !")
++
++    normalized = (value - min_val) * (new_max - new_min) / (max_val - min_val) + new_min
++
++    if clip:
++        return np.clip(normalized, new_min, new_max)
++    return normalized
+ 
+ # --- Socket server per comunicazione RL esterna ---
+-HOST = '127.0.0.1'
+-PORT = 10000
+-
+-env = CustomCarEnv()
+-
+-try:
+-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+-        s.bind((HOST, PORT))
+-        s.listen(1)
+-        print("Controller Webots in ascolto sulla porta", PORT, "...")
+-
+-        conn, addr = s.accept()
+-        with conn:
+-            print(f"Connesso a: {addr}")
+-            while True:
+-                data = conn.recv(1024)
+-                if not data:
+-                    print("Client disconnesso.")
+-                    break
+-
+-                try:
+-                    msg = json.loads(data.decode())
+-                except json.JSONDecodeError:
+-                    print(f"Errore di decodifica JSON: {data.decode()}")
+-                    continue
+-
+-                if msg['cmd'] == 'reset':
+-                    obs = env.reset()
+-                    conn.send(json.dumps({'obs': obs.tolist()}).encode())
+-
+-                elif msg['cmd'] == 'step':
+-                    obs, reward, done, _ = env.step(msg['action'])
+-                    conn.send(json.dumps({
+-                        'obs': obs.tolist(),
+-                        'reward': float(reward),
+-                        'done': bool(done)
+-                    }).encode())
+-
+-                elif msg['cmd'] == 'exit':
+-                    print("Comando 'exit' ricevuto.")
+-                    env.robot.simulationSetMode(0)
+-                    env.robot.simulationReset()
+-    
+-                    break
++if __name__=='__main__':
++    HOST = '127.0.0.1'
++    PORT = 10000
++
++    env = CustomCarEnv()
++
++    try:
++        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
++            s.bind((HOST, PORT))
++            s.listen(1)
++            print("Controller Webots in ascolto sulla porta", PORT, "...")
++
++            conn, addr = s.accept()
++            with conn:
++                print(f"Connesso a: {addr}")
++                while True:
++                    data = conn.recv(1024)
++                    if not data:
++                        print("Client disconnesso.")
++                        break
++
++                    try:
++                        msg = json.loads(data.decode())
++                    except json.JSONDecodeError:
++                        print(f"Errore di decodifica JSON: {data.decode()}")
++                        continue
++
++                    if msg['cmd'] == 'reset':
++                        obs = env.reset()
++                        conn.send(json.dumps({'obs': obs.tolist()}).encode())
++
++                    elif msg['cmd'] == 'step':
++                        obs, reward, done, _ = env.step(msg['action'])
++                        conn.send(json.dumps({
++                            'obs': obs.tolist(),
++                            'reward': float(reward),
++                            'done': bool(done)
++                        }).encode())
++
++                    elif msg['cmd'] == 'exit':
++                        print("Comando 'exit' ricevuto.")
++                        env.robot.simulationSetMode(0)
++                        env.robot.simulationReset()
++        
++                        break
+ 
+-except Exception as e:
+-    print(f"Errore nel server socket: {e}")
+-finally:
+-    print("Chiusura del controller Webots.")
++    except Exception as e:
++        print(f"Errore nel server socket: {e}")
++    finally:
++        print("Chiusura del controller Webots.")
+ 
+diff --git a/test.py b/test.py
+index 6248262..381acff 100644
+--- a/test.py
++++ b/test.py
+@@ -1,10 +1,10 @@
+ import gymnasium as gym
+ from webots_remote_env import WebotsRemoteEnv
+ from stable_baselines3 import SAC
+-
++from stable_baselines3 import PPO
+ env = WebotsRemoteEnv()
+-model = SAC.load("models/SAC_minimal_tesla_3.mdl")
+-test_episodes = 100
++model = SAC.load("models/SAC_parallel_1M.mdl")
++test_episodes = 1000
+ 
+ for i in range(test_episodes):
+     
+diff --git a/train.py b/train.py
+index 3ee987b..44308e5 100644
+--- a/train.py
++++ b/train.py
+@@ -2,11 +2,43 @@ import numpy as np
+ from gymnasium import Env, spaces
+ from stable_baselines3 import SAC
+ from webots_remote_env import WebotsRemoteEnv
++from stable_baselines3.common.callbacks import CheckpointCallback
++from wandb.integration.sb3 import WandbCallback
++import wandb
++import os
+ 
++wandb.init(
++    project="RL_project_webots_easy",          
++    name="SAC-Webots-run",             
++    sync_tensorboard=True,             
++    monitor_gym=True,                  
++    save_code=True
++)
++# Percorsi per salvataggio
++CHECKPOINT_DIR = "checkpoints"
++MODEL_DIR = "models"
++os.makedirs(CHECKPOINT_DIR, exist_ok=True)
++os.makedirs(MODEL_DIR, exist_ok=True)
++
++
++# Callback per salvataggi periodici
++checkpoint_callback = CheckpointCallback(
++    save_freq=100_000,                     # salva ogni 100k timesteps
++    save_path=CHECKPOINT_DIR,
++    name_prefix="SAC_run1_"
++)
++
++# Callback per integrazione con wandb
++wandb_callback = WandbCallback(
++    gradient_save_freq=1,
++    model_save_path=MODEL_DIR,
++    verbose=2,
++)
+ 
+ env = WebotsRemoteEnv()
+-model = SAC("MlpPolicy", env, verbose=1 ,device='cuda')
++model = SAC("MlpPolicy", env, verbose=1 ,device='cuda',tensorboard_log="./tb_logs/")
+ print(f"Using: {model.device}")
+-model.learn(total_timesteps=100000,progress_bar=True)
+-model.save("models/SAC_minimal_tesla_3.mdl")
++model.learn(total_timesteps=1000000,progress_bar=True,callback=[checkpoint_callback, wandb_callback])
++model.save(os.path.join(MODEL_DIR, "SAC_1M_1.mdl"))
+ env.close()
++wandb.finish()
+\ No newline at end of file
+diff --git a/webots_remote_env.py b/webots_remote_env.py
+index 8ccb04a..140703f 100644
+--- a/webots_remote_env.py
++++ b/webots_remote_env.py
+@@ -13,8 +13,8 @@ class WebotsRemoteEnv(gym.Env):
+         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+         self.conn.connect((self.host, self.port))
+ 
+-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(22,), dtype=np.float32)
+-        self.action_space = spaces.Box(low=-1.0,high=1.0, shape=(2,),dtype=np.float32)
++        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(16,), dtype=np.float32)
++        self.action_space = spaces.Box(low=np.array([0.0,-1.0]),high=np.array([1.0,1.0]), shape=(2,),dtype=np.float32)
+         
+     def step(self, action):
+         msg = json.dumps({'cmd': 'step', 'action': action.tolist()}).encode()
+diff --git a/worlds/.rl_project_tesla.jpg b/worlds/.rl_project_tesla.jpg
+index 19cd80d..1fc2027 100644
+Binary files a/worlds/.rl_project_tesla.jpg and b/worlds/.rl_project_tesla.jpg differ
+diff --git a/worlds/.rl_project_tesla.wbproj b/worlds/.rl_project_tesla.wbproj
+index 580d98a..1d39dd5 100644
+--- a/worlds/.rl_project_tesla.wbproj
++++ b/worlds/.rl_project_tesla.wbproj
+@@ -1,11 +1,11 @@
+ Webots Project File version R2025a
+-perspectives: 000000ff00000000fd00000002000000010000011c0000029ffc0200000001fb0000001400540065007800740045006400690074006f007201000000190000029f0000004000ffffff00000003000007800000010cfc0100000001fb0000001a0043006f006e0073006f006c00650041006c006c0041006c006c0100000000000007800000006900ffffff000006620000029f00000001000000020000000100000008fc00000000
++perspectives: 000000ff00000000fd00000002000000010000011c00000238fc0200000001fb0000001400540065007800740045006400690074006f00720100000019000002380000004000ffffff000000030000078000000173fc0100000001fb0000001a0043006f006e0073006f006c00650041006c006c0041006c006c0100000000000007800000006900ffffff000006620000023800000001000000020000000100000008fc00000000
+ simulationViewPerspectives: 000000ff000000010000000200000110000005520100000002010000000100
+-sceneTreePerspectives: 000000ff00000001000000030000002200000258000000fa0100000002010000000200
++sceneTreePerspectives: 000000ff000000010000000300000022000000c0000000fa0100000002010000000200
+ minimizedPerspectives: 000000ff00000000fd00000002000000010000046600000304fc0200000001fb0000001400540065007800740045006400690074006f00720000000019000003040000004000ffffff0000000300000780000000dafc0100000001fb0000001a0043006f006e0073006f006c00650041006c006c0041006c006c0300000001000003360000077e000000da00000780000003e000000001000000020000000100000008fc00000000
+ maximizedDockId: -1
+ centralWidgetVisible: 1
+ orthographicViewHeight: 1
+ textFiles: -1
+-globalOptionalRendering: LidarRaysPaths
++globalOptionalRendering: LidarRaysPaths::LidarPointClouds
+ consoles: Console:All:All
+diff --git a/worlds/.rl_project_tesla_complex.jpg b/worlds/.rl_project_tesla_complex.jpg
+deleted file mode 100644
+index 0ea9d84..0000000
+Binary files a/worlds/.rl_project_tesla_complex.jpg and /dev/null differ
+diff --git a/worlds/.rl_project_tesla_complex.wbproj b/worlds/.rl_project_tesla_complex.wbproj
+deleted file mode 100644
+index 999ec93..0000000
+--- a/worlds/.rl_project_tesla_complex.wbproj
++++ /dev/null
+@@ -1,10 +0,0 @@
+-Webots Project File version R2025a
+-perspectives: 000000ff00000000fd00000002000000010000011c000002d1fc0200000001fb0000001400540065007800740045006400690074006f00720100000019000002d10000004000ffffff0000000300000780000000dafc0100000001fb0000001a0043006f006e0073006f006c00650041006c006c0041006c006c0100000000000007800000006900ffffff00000662000002d100000001000000020000000100000008fc00000000
+-simulationViewPerspectives: 000000ff000000010000000200000178000004e80100000002010000000100
+-sceneTreePerspectives: 000000ff00000001000000030000002200000293000000fa0100000002010000000200
+-maximizedDockId: -1
+-centralWidgetVisible: 1
+-orthographicViewHeight: 1
+-textFiles: -1
+-consoles: Console:All:All
+-renderingDevicePerspectives: tesla:front_camera;1;0.913889;0;0
+diff --git a/worlds/rl_project_tesla.wbt b/worlds/rl_project_tesla.wbt
+index c17d107..4243fe4 100644
+--- a/worlds/rl_project_tesla.wbt
++++ b/worlds/rl_project_tesla.wbt
+@@ -4,15 +4,16 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
+ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/road/protos/Road.proto"
+ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
+ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/tesla/TeslaModel3.proto"
+-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/obstacles/protos/OilBarrel.proto"
+-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/animals/protos/Cow.proto"
+ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/humans/pedestrian/protos/Pedestrian.proto"
++EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/solids/protos/SolidBox.proto"
++EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/Floor.proto"
++EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Parquetry.proto"
+ 
+ WorldInfo {
+ }
+ Viewpoint {
+-  orientation 0.22071124336487694 0.05604887441085629 -0.9737274108956808 2.6567556115491495
+-  position 60.24384071163688 16.450675044274014 16.572591466865255
++  orientation 0.10857923655352776 0.2668087659566192 -0.9576135085712603 0.8036613688434272
++  position -15.596419867254209 18.94555952415513 9.645564737109648
+ }
+ TexturedBackground {
+   luminosity 3
+@@ -21,10 +22,10 @@ TexturedBackground {
+   ]
+ }
+ Road {
+-  width 8
++  width 10
+   wayPoints [
+     -5 0 0
+-    100 0 0
++    120 0 0
+   ]
+   splineSubdivision 1200
+   appearance Asphalt {
+@@ -32,15 +33,49 @@ Road {
+   }
+   roadBoundingObject TRUE
+ }
+-DEF obstacle_1 OilBarrel {
+-  translation 16.93 -1.51 0.44
++DEF obstacle_4 SolidBox {
++  translation 42.86 3 0.75
++  size 1.5 1.5 1.5
++  appearance PBRAppearance {
++    baseColor 0.666667 0 0
++    baseColorMap ImageTexture {
++      url [
++        ""
++      ]
++    }
++    roughness 0.5
++    metalness 0
++  }
+ }
+-DEF obstacle_2 OilBarrel {
+-  translation 28.11 1.53 0.44
+-  name "oil barrel(1)"
++DEF obstacle_2 SolidBox {
++  translation 88.09 -3.28 0.75
++  name "box_2"
++  size 1.5 1.5 1.5
++  appearance PBRAppearance {
++    baseColor 0.666667 0 0
++    baseColorMap ImageTexture {
++      url [
++        ""
++      ]
++    }
++    roughness 0.5
++    metalness 0
++  }
+ }
+-DEF obstacle_4 Cow {
+-  translation 41.74 -3.12 0
++DEF obstacle_3 SolidBox {
++  translation 19.3 -1.88 0.75
++  name "box_2"
++  size 1.5 1.5 1.5
++  appearance PBRAppearance {
++    baseColor 0.666667 0 0
++    baseColorMap ImageTexture {
++      url [
++        ""
++      ]
++    }
++    roughness 0.5
++    metalness 0
++  }
+ }
+ DEF tesla TeslaModel3 {
+   translation 0 -2 0.4
+@@ -49,9 +84,12 @@ DEF tesla TeslaModel3 {
+   supervisor TRUE
+   sensorsSlotFront [
+     Lidar {
+-      fieldOfView 3.14
+-      numberOfLayers 6
+-      maxRange 5
++      translation 4.07989e-07 0 0.1
++      rotation 0 1 0 4.07987e-06
++      fieldOfView 0.7
++      verticalFieldOfView 0.05
++      numberOfLayers 5
++      maxRange 15
+     }
+   ]
+   sensorsSlotCenter [
+@@ -61,6 +99,14 @@ DEF tesla TeslaModel3 {
+     }
+   ]
+ }
+-DEF obstacle_3 Pedestrian {
+-  translation 26.78 -2.48 1.27
++DEF obstacle_1 Pedestrian {
++  translation 61.903 -2.98492 1.25
++}
++DEF target Floor {
++  translation 110 0 0
++  size 2 10
++  appearance Parquetry {
++    type "chequered"
++    colorOverride 1 1 0
++  }
+ }
+diff --git a/worlds/rl_project_tesla_complex.wbt b/worlds/rl_project_tesla_complex.wbt
+deleted file mode 100644
+index aaa5749..0000000
+--- a/worlds/rl_project_tesla_complex.wbt
++++ /dev/null
+@@ -1,202 +0,0 @@
+-#VRML_SIM R2025a utf8
+-
+-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/road/protos/Road.proto"
+-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Pavement.proto"
+-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/tesla/TeslaModel3.proto"
+-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
+-
+-WorldInfo {
+-  basicTimeStep 16
+-}
+-Viewpoint {
+-  fieldOfView 0.4
+-  orientation -0.19870512129302584 -0.2377678989558813 0.950780048695822 4.841047438955728
+-  position -0.04050393845946482 28.70451399183547 12.376613152669785
+-}
+-Background {
+-  skyColor [
+-    0.4 0.7 1
+-    0 0 0
+-    0 0 0
+-  ]
+-}
+-Floor {
+-  translation 250 30 0
+-  name "green_floor"
+-  size 600 200
+-  appearance PBRAppearance {
+-    baseColor 0 0.6 0.2
+-    roughness 1
+-    metalness 0
+-  }
+-}
+-Road {
+-  translation 0 0 0.01
+-  name "main_road"
+-  width 8
+-  roadBorderHeight 0.2
+-  roadBorderWidth [
+-    1
+-  ]
+-  wayPoints [
+-    -5 0 0
+-    100 0 0
+-    150 20 0
+-    200 60 0
+-    300 60 0
+-    350 20 0
+-    400 0 0
+-    500 0 0
+-  ]
+-  splineSubdivision 12000
+-  appearance Asphalt {
+-    colorOverride 0 0 0
+-  }
+-  pavementAppearance Pavement {
+-    type "slate"
+-  }
+-  roadBoundingObject TRUE
+-  rightBorderBoundingObject TRUE
+-  leftBorderBoundingObject TRUE
+-}
+-DEF tesla TeslaModel3 {
+-  translation 0 -2 0.4
+-  name "tesla"
+-  controller "tesla_controller"
+-  supervisor TRUE
+-  sensorsSlotFront [
+-    Lidar {
+-      fieldOfView 3.14
+-      numberOfLayers 6
+-      maxRange 5
+-    }
+-  ]
+-  sensorsSlotCenter [
+-    InertialUnit {
+-    }
+-    GPS {
+-    }
+-  ]
+-}
+-DEF Obstacle1 Solid {
+-  translation 49.59 -1.81 0.5
+-  children [
+-    Shape {
+-      appearance Appearance {
+-        material Material {
+-          diffuseColor 1 0 0
+-        }
+-      }
+-      geometry Box {
+-        size 1 1 1
+-      }
+-    }
+-  ]
+-  name "obstacle_1"
+-  contactMaterial "red"
+-  boundingObject Box {
+-    size 1 1 1
+-  }
+-  recognitionColors [
+-    0 0 0
+-  ]
+-}
+-DEF Obstacle2 Solid {
+-  translation 220 53.79 0.5
+-  children [
+-    Shape {
+-      appearance Appearance {
+-        material Material {
+-          diffuseColor 1 0 0
+-        }
+-      }
+-      geometry Box {
+-        size 1 1 1
+-      }
+-    }
+-  ]
+-  name "obstacle_2"
+-  boundingObject Box {
+-    size 1 1 1
+-  }
+-}
+-DEF Obstacle3 Solid {
+-  translation 147.04 19.54 0.5
+-  children [
+-    Shape {
+-      appearance Appearance {
+-        material Material {
+-          diffuseColor 1 0 0
+-        }
+-      }
+-      geometry Box {
+-        size 1 1 1
+-      }
+-    }
+-  ]
+-  name "obstacle_1(1)"
+-  contactMaterial "red"
+-  boundingObject Box {
+-    size 1 1 1
+-  }
+-  recognitionColors [
+-    0 0 0
+-  ]
+-}
+-DEF Obstacle4 Solid {
+-  translation 300 48.39 0.5
+-  children [
+-    Shape {
+-      appearance Appearance {
+-        material Material {
+-          diffuseColor 1 0 0
+-        }
+-      }
+-      geometry Box {
+-        size 1 1 1
+-      }
+-    }
+-  ]
+-  name "obstacle_3"
+-  boundingObject Box {
+-    size 1 1 1
+-  }
+-}
+-DEF Obstacle5 Solid {
+-  translation 459.81 -1.97 0.5
+-  children [
+-    Shape {
+-      appearance Appearance {
+-        material Material {
+-          diffuseColor 1 0 0
+-        }
+-      }
+-      geometry Box {
+-        size 1 1 1
+-      }
+-    }
+-  ]
+-  name "obstacle_4"
+-  boundingObject Box {
+-    size 1 1 1
+-  }
+-}
+-DEF Obstacle6 Solid {
+-  translation 400 2.42 0.5
+-  children [
+-    Shape {
+-      appearance Appearance {
+-        material Material {
+-          diffuseColor 1 0 0
+-        }
+-      }
+-      geometry Box {
+-        size 1 1 1
+-      }
+-    }
+-  ]
+-  name "obstacle_4(1)"
+-  boundingObject Box {
+-    size 1 1 1
+-  }
+-}

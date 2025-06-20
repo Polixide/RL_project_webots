@@ -23,14 +23,14 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 
 # Callback per salvataggi periodici
 checkpoint_callback = CheckpointCallback(
-    save_freq=10000,               # salva ogni 100k timesteps
+    save_freq=100_000,                     # salva ogni 100k timesteps
     save_path=CHECKPOINT_DIR,
     name_prefix="SAC_run1_"
 )
 
 # Callback per integrazione con wandb
 wandb_callback = WandbCallback(
-    gradient_save_freq=0,
+    gradient_save_freq=1,
     model_save_path=MODEL_DIR,
     verbose=2,
 )

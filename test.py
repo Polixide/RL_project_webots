@@ -1,10 +1,10 @@
 import gymnasium as gym
 from webots_remote_env import WebotsRemoteEnv
 from stable_baselines3 import SAC
-
+from stable_baselines3 import PPO
 env = WebotsRemoteEnv()
-model = SAC.load("models/SAC_minimal_tesla_3.mdl")
-test_episodes = 100
+model = SAC.load("models/SAC_parallel_1M.mdl")
+test_episodes = 1000
 
 for i in range(test_episodes):
     
