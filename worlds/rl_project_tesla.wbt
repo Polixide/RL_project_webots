@@ -12,8 +12,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.10857923655352776 0.2668087659566192 -0.9576135085712603 0.8036613688434272
-  position -15.596419867254209 18.94555952415513 9.645564737109648
+  orientation 0.09334920110904964 0.21883240347873353 -0.971286932806173 1.0025688167264801
+  position -19.288129114198167 51.84124527110397 21.012897121108775
 }
 TexturedBackground {
   luminosity 3
@@ -22,7 +22,10 @@ TexturedBackground {
   ]
 }
 Road {
-  width 10
+  width 12
+  roadBorderHeight 0.4
+  rightBarrier TRUE
+  leftBarrier TRUE
   wayPoints [
     -5 0 0
     120 0 0
@@ -34,7 +37,7 @@ Road {
   roadBoundingObject TRUE
 }
 DEF obstacle_4 SolidBox {
-  translation 42.86 3 0.75
+  translation 14.4291 1.64071 0.4
   size 1.5 1.5 1.5
   appearance PBRAppearance {
     baseColor 0.666667 0 0
@@ -48,7 +51,7 @@ DEF obstacle_4 SolidBox {
   }
 }
 DEF obstacle_2 SolidBox {
-  translation 88.09 -3.28 0.75
+  translation 28.044632248601786 -3.284154463553395 0.4
   name "box_2"
   size 1.5 1.5 1.5
   appearance PBRAppearance {
@@ -63,7 +66,7 @@ DEF obstacle_2 SolidBox {
   }
 }
 DEF obstacle_3 SolidBox {
-  translation 19.3 -1.88 0.75
+  translation 57.5127 -2.29084 0.4
   name "box_2"
   size 1.5 1.5 1.5
   appearance PBRAppearance {
@@ -78,15 +81,16 @@ DEF obstacle_3 SolidBox {
   }
 }
 DEF tesla TeslaModel3 {
-  translation 0 -2 0.4
+  translation 0 -2 0.4493184
+  rotation -0.5258133376166102 0.8481214331256809 -0.06488735360085233 6.099530371112311e-21
   name "tesla"
   controller "tesla_controller"
   supervisor TRUE
   sensorsSlotFront [
     Lidar {
       translation 4.07989e-07 0 0.1
-      rotation 0 1 0 4.07987e-06
-      fieldOfView 0.7
+      rotation 0 1 0 0.005
+      fieldOfView 0.79
       verticalFieldOfView 0.05
       numberOfLayers 5
       maxRange 15
@@ -100,7 +104,7 @@ DEF tesla TeslaModel3 {
   ]
 }
 DEF obstacle_1 Pedestrian {
-  translation 61.903 -2.98492 1.25
+  translation 44.7292 2.02278 0.4
 }
 DEF target Floor {
   translation 110 0 0

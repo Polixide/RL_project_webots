@@ -1,23 +1,37 @@
-import gymnasium as gym
-from webots_remote_env import WebotsRemoteEnv
 from stable_baselines3 import SAC
-from stable_baselines3 import PPO
-env = WebotsRemoteEnv()
-model = SAC.load("models/SAC_parallel_1M.mdl")
-test_episodes = 1000
+from webots_remote_env import WebotsRemoteEnv
+from stable_baselines3.common.vec_env import DummyVecEnv
+import numpy as np
+import time
 
-for i in range(test_episodes):
-    
-    # env.reset() ora restituisce (observation, info)
-    observation, _ = env.reset() # Il underscore `_` è una convenzione per ignorare il valore `info`
-    
+
+# Inizializza ambiente visualizzabile
+env = DummyVecEnv([lambda: WebotsRemoteEnv()])
+
+# Carica il modello
+model = SAC.load("models/SAC_1M_UDR.mdl", env=env)
+
+# Parametri test
+test_episodes = 200
+all_rewards = []
+
+for ep in range(test_episodes):
+    obs = env.reset()
     done = False
     total_reward = 0.0
+    steps = 0
+
     while not done:
-        action, _states = model.predict(observation=observation, deterministic=True) 
-        observation, reward, terminated, truncated, info = env.step(action)
-        done = terminated or truncated # 'done' per Stable-Baselines3 è true se terminated OR truncated
-        
-        total_reward += reward
-        
-    print(f"Episode: {i+1} -- Total Reward: {total_reward}")
+        action, _ = model.predict(obs, deterministic=True)
+        print(f"ACTION: {action}")
+        obs, reward, terminated, _ = env.step(action)
+        done = terminated
+        total_reward += float(reward)
+        steps += 1
+    
+
+    all_rewards.append(total_reward)
+    print(f"Episode {ep+1} | Reward: {total_reward:.2f} | Steps: {steps}")
+
+print("\nRISULTATI TEST")
+print(f"Avg Reward: {np.mean(all_rewards):.2f}")

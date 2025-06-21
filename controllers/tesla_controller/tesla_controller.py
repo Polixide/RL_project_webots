@@ -7,25 +7,25 @@ import time
 
 class CustomCarEnv(DeepbotsSupervisorEnv):
 
-    # --- 1. Costanti di configurazione per un tuning più semplice ---
+     # --- 1. Costanti di configurazione per un tuning più semplice ---
     MAX_TIMESTEPS = 1000
-    TARGET_THRESHOLD = 2 # Aumentato leggermente per facilitare il raggiungimento
-    COLLISION_THRESHOLD = 0.4 # Distanza minima prima di considerare una collisione
-    STALL_LIMIT = 200 # Numero di step a velocità quasi nulla prima di terminare    
-    MAX_SPEED = 80 #rad/s
-    MAX_STEER_ANGLE = 0.7 # radianti (circa 34 gradi)
-    ROAD_WIDTH = 10
+    TARGET_THRESHOLD = 3 # Aumentato leggermente per facilitare il raggiungimento
+    COLLISION_THRESHOLD = 0.6 # Distanza minima prima di considerare una collisione
+    STALL_LIMIT = 150 # Numero di step a velocità quasi nulla prima di terminare    
+    MAX_SPEED = 30 #rad/s
+    MAX_STEER_ANGLE = 0.55 # radianti (circa 34 gradi)
+    ROAD_WIDTH = 12
     ROAD_LENGTH = 120
 
     robot = Supervisor()
 
     def __init__(self):
-        
+        self.total_timesteps = 0
         self.episode = 0
         #initializing obstacles
         self.num_obstacles = 4
         self.obstacles = []
-
+        self.cumulative_reward = 0.0
         for i in range(self.num_obstacles):
             self.obstacles.append(self.robot.getFromDef(f"obstacle_{i+1}"))
         
@@ -93,7 +93,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
             return None, 0.0, True, True, {} # obs, reward, terminated, truncated, info
 
         self.current_timestep += 1
-        
+        self.total_timesteps += 1
         # Ottieni nuove osservazioni
         obs = self.get_obs()
         
@@ -106,7 +106,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
             print("--- Episodio troncato per limite di tempo ---")
         
         done = terminated or truncated
-        
+        '''
         print_every = 50
         if((self.current_timestep % print_every) == 0):
             print("=====================================")
@@ -116,7 +116,12 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
             print(f"REWARD: {reward}")
             print(f"ACTION: {action}")
             print("=====================================")
-
+        '''
+        print("=====================================")
+        print(f"EPISODE: {self.episode}")
+        print(f"CUMULATIVE REWARD: {self.cumulative_reward}")
+        print(f"TOT TIMESTEPS: {self.total_timesteps}")
+        print("=====================================")
         return obs, reward, done, {} # Manteniamo l'output standard di `step` (obs, reward, done, info)
         
 
@@ -216,22 +221,21 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
 
         # --- 1. Progresso verso il target ---
         progress = self.previous_distance_to_target - target_distance
-        reward += progress * 60
+        reward += progress * 55
         self.previous_distance_to_target = target_distance
 
-        # --- 2. Velocità ---
-        reward += mean_v * 0.5
-
         # --- 3. Penalità sterzate forti ---
-        reward -= abs(tesla_yaw) * 1.0  # oppure un valore più basso tipo 0.5
+        reward -= abs(steer) * 1.0  # oppure un valore più basso tipo 0.5
+
+        reward -= abs(tesla_yaw) * 2
 
         # --- 4. Penalità prossimità ostacoli ---
         risk_score = np.sum(np.array(lidar) ** 2)
-        reward -= risk_score * 10.0
+        reward -= risk_score * 15.0
 
-        weights = np.array([1, 1.5, 2, 3, 4, 4, 3, 2, 1.5, 1])
+        weights = np.array([1.25, 1.75, 2, 3, 4, 4, 3, 2, 1.75, 1.25])
         directional_penalty = np.sum(weights * (np.array(lidar) ** 2))
-        reward -= directional_penalty * 2.5
+        reward -= directional_penalty * 3.5
 
         if np.max(lidar) > 0.95:
             reward -= 50.0
@@ -244,32 +248,34 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
 
         if abs(gps_y) > (self.ROAD_WIDTH/2) or gps_z < 0 or gps_z > 1.0:
             print("--- Fuori strada ---")
-            reward -= 30.0
+            reward -= 50.0
             terminated = True
 
-        if mean_v < 0.1:
+
+        if mean_v < 1:
             self.stall_counter += 1
         else:
             self.stall_counter = 0
 
         if self.stall_counter >= self.STALL_LIMIT:
             print("--- Stallo ---")
-            reward -= 20.0
+            reward -= 50.0
             terminated = True
 
-        if target_distance < self.TARGET_THRESHOLD:
+        if target_distance < self.TARGET_THRESHOLD or abs(self.TARGET_X - gps_x) < 2:
             print("--- Obiettivo raggiunto ---")
-            reward += 100.0
+            reward += 300.0
             terminated = True
 
         reward = reward * 0.1
+        self.cumulative_reward += reward
 
         return reward, terminated
 
     def apply_UDR_to_obstacles(self): #to apply uniform domain randomization
         
-        range_x = [10,80]
-        range_y = [-3.5,3.5]
+        range_x = [10,90]
+        range_y = [-self.ROAD_WIDTH/2 + 1 ,self.ROAD_WIDTH/2 -1]
         z = 0.4
 
         placed_positions = []
@@ -284,7 +290,7 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
 
                 # Controlla che non sia troppo vicino a un altro ostacolo
                 is_overlapping = any(
-                    np.linalg.norm(np.array(new_position[:2]) - np.array(pos[:2])) < 3
+                    np.linalg.norm(np.array(new_position[:2]) - np.array(pos[:2])) < 5
                     for pos in placed_positions
                 )
 
@@ -323,12 +329,13 @@ class CustomCarEnv(DeepbotsSupervisorEnv):
         self.car_node.setVelocity([0, 0, 0, 0, 0, 0])
         self.left_motor.setVelocity(0.0)
         self.right_motor.setVelocity(0.0)
-        #self.apply_UDR_to_obstacles()
+        #if(self.total_timesteps >= 10000):
+        self.apply_UDR_to_obstacles()
         #self.apply_UDR_to_tesla()
 
         # Resetta la simulazione
         self.robot.simulationResetPhysics()
-
+        self.cumulative_reward = 0.0
         self.robot.step(self.timestep * 5) # Lascia stabilizzare la simulazione
         
         # Resetta le variabili di stato dell'episodio
@@ -415,7 +422,7 @@ if __name__=='__main__':
                         print("Comando 'exit' ricevuto.")
                         env.robot.simulationSetMode(0)
                         env.robot.simulationReset()
-        
+                        
                         break
 
     except Exception as e:
